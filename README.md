@@ -150,10 +150,41 @@ Only people whose **Gmail address** is listed can sign in. Edit
 export const ALLOWED_EMAILS = ['arif@gmail.com', 'ovi@gmail.com', ...]
 ```
 
+- Restart the dev server after editing.
 - The Google account's **full name** becomes their column in the sheet
   (auto-added on first login).
 - A new employee's column is added automatically — no sheet edits needed.
 - To remove someone, just remove their email from the list.
+
+## Deploying to Vercel
+
+`service-account.json` is gitignored, so it never reaches Vercel. Instead, store
+its content as an environment variable:
+
+1. Generate the stringified JSON (single line):
+   ```bash
+   node -e "console.log(JSON.stringify(require('./service-account.json')))"
+   ```
+2. In the Vercel project → **Settings → Environment Variables**, add all values
+   from your `.env`:
+   - `SPREADSHEET_ID`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `SESSION_SECRET`,
+     `ALLOWED_EMAILS` — same values as local
+   - `GOOGLE_SERVICE_ACCOUNT_JSON` — the stringified JSON from step 1 (paste it
+     as the value, no file needed)
+3. In the Google Cloud OAuth client, add your production URL to **Authorized
+   redirect URIs**: `https://your-app.vercel.app/api/auth/callback`
+4. Redeploy.
+
+> Alternative: `GOOGLE_SERVICE_ACCOUNT_JSON_BASE64` (base64 of the file) also
+> works. Use whichever is easier.
+
+> **Note:** the hourly auto-absent job runs inside the app server, which isn't
+> always alive on Vercel. The auto-absent still applies because it also runs on
+> every request — as long as someone opens the app, past unmarked days get
+> filled. For strict midnight marking, add a
+> [Vercel Cron](https://vercel.com/docs/cron-jobs) hitting
+> `/api/attendance/status?employee=` (any employee) every hour.
+
 
 ## Troubleshooting
 
