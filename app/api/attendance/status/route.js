@@ -13,15 +13,19 @@ export async function GET(request) {
     return NextResponse.json({ message: 'Not authenticated' }, { status: 401 })
   }
 
-  const employeeName = String(request.nextUrl.searchParams.get('employee') || '').trim()
-  if (!employeeName) {
-    return NextResponse.json({ message: 'employee is required' }, { status: 400 })
+  const qp = request.nextUrl.searchParams
+  const employeeEmail = String(qp.get('email') || qp.get('employeeEmail') || '').trim().toLowerCase()
+  const employeeName = String(qp.get('employee') || qp.get('name') || '').trim()
+  const email = employeeEmail || String(user.email || '').trim().toLowerCase()
+  const name = employeeName || String(user.name || '').trim()
+  if (!email && !name) {
+    return NextResponse.json({ message: 'email or employee is required' }, { status: 400 })
   }
 
   try {
     const { date, day } = nowParts()
-    const result = await getAttendanceStatus(employeeName, day)
-    return NextResponse.json({ employee: employeeName, date, ...result })
+    const result = await getAttendanceStatus(name, email, day)
+    return NextResponse.json({ employee: name, email, date, ...result })
   } catch (error) {
     console.error('GET /api/attendance/status failed:', error.message)
     return NextResponse.json(

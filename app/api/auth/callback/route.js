@@ -28,12 +28,12 @@ export async function GET(request) {
 
   try {
     const user = await exchangeCodeForUser(origin, code)
-    if (!isAllowedEmail(user.email)) {
+    if (!(await isAllowedEmail(user.email))) {
       return fail('not_allowed')
     }
     const token = await createSessionToken(user)
     response.cookies.set(SESSION_COOKIE, token, sessionCookieOptions())
-    ensureEmployeeTabForUser(user.name).catch((e) =>
+    ensureEmployeeTabForUser(user.name, user.email).catch((e) =>
       console.error('Could not sync employee column after login:', e.message),
     )
     return response

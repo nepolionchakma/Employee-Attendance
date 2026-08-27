@@ -3,18 +3,24 @@ import { verifySessionToken } from '@/lib/auth'
 
 export default async function proxy(request) {
   const session = await verifySessionToken(request.cookies.get('session')?.value)
+  const { pathname } = request.nextUrl
 
-  if (request.nextUrl.pathname === '/' && !session) {
+  if (pathname === '/' && !session) {
     return NextResponse.redirect(new URL('/login', request.url))
   }
 
-  if (request.nextUrl.pathname === '/login' && session) {
+  if (pathname === '/login' && session) {
     return NextResponse.redirect(new URL('/', request.url))
+  }
+
+  if (pathname.startsWith('/admin') || pathname.startsWith('/manage-attendance')) {
+    if (!session) return NextResponse.redirect(new URL('/login', request.url))
+    if (!session.isAdmin) return NextResponse.redirect(new URL('/', request.url))
   }
 
   return NextResponse.next()
 }
 
 export const config = {
-  matcher: ['/', '/login'],
+  matcher: ['/', '/login', '/admin/:path*', '/manage-attendance/:path*'],
 }

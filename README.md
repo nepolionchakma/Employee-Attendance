@@ -123,9 +123,11 @@ immediately.
 | `app/api/auth/google`, `callback`, `logout` | Google OAuth flow (login/logout) |
 | `app/api/attendance/route.js` | POST — marks attendance, rejects duplicates (409) |
 | `app/api/attendance/status/route.js` | GET — checks if an employee already marked today |
-| `proxy.js` | Redirects unauthenticated users to `/login` |
+| `proxy.js` | Redirects unauthenticated users to `/login`; protects `/admin` for admins |
 | `lib/storage.js` | Storage backend: Google Sheets or in-memory fallback |
-| `lib/employees.js` | Employee names (must match Google login names, case-insensitive) |
+| `lib/employees.js` | `ALLOWED_EMAILS` + `ADMIN_EMAILS` (Gmail allowlists; `isAdminEmail`) |
+| `app/admin/page.js` + `admin-client.jsx` | Admin sheet manager (edit any cell, recomputes Absent Days) |
+| `app/api/admin/data`, `update` | Admin-only sheet APIs |
 
 ### Attendance sheet structure
 
@@ -148,6 +150,7 @@ Only people whose **Gmail address** is listed can sign in. Edit
 
 ```js
 export const ALLOWED_EMAILS = ['arif@gmail.com', 'ovi@gmail.com', ...]
+export const ADMIN_EMAILS = ['admin@gmail.com', ...] // can manage sheet at /admin
 ```
 
 - Restart the dev server after editing.
@@ -155,6 +158,12 @@ export const ALLOWED_EMAILS = ['arif@gmail.com', 'ovi@gmail.com', ...]
   (auto-added on first login).
 - A new employee's column is added automatically — no sheet edits needed.
 - To remove someone, just remove their email from the list.
+- Admins (in `ADMIN_EMAILS`) see an **Admin** button on the home page and can
+  edit every cell for any day/employee at `/admin` — changes recompute
+  Absent Days immediately.
+- Both lists can also be set via env (`ALLOWED_EMAILS`, `ADMIN_EMAILS` as
+  comma-separated strings) which override the file when present (useful for
+  Vercel).
 
 ## Deploying to Vercel
 

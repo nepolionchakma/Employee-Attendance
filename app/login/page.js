@@ -7,7 +7,7 @@ export const metadata = { title: 'Sign in' }
 const ERROR_MESSAGES = {
   setup: 'Google login is not configured yet. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.',
   invalid_state: 'Sign-in session expired. Please try again.',
-  not_allowed: 'This Google account is not allowed. Sign in with a shared Gmail account.',
+  not_allowed: 'This Google account is not allowed. Sign in with your shared Gmail account.',
   oauth_failed: 'Google sign-in failed. Please try again.',
 }
 
