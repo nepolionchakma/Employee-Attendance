@@ -30,10 +30,15 @@ function LogoutIcon() {
   )
 }
 
+function shortName(name) {
+  const n = String(name || '')
+  return n.length > 11 ? n.slice(0, 11) + '..' : n
+}
+
 export default function Navbar({ user }) {
   const pathname = usePathname()
   const isHome = pathname === '/'
-  const isAdminPage = pathname?.startsWith('/admin')
+  const isAdminPage = pathname?.startsWith('/manage-attendance') || pathname?.startsWith('/admin')
 
   if (!user) return null
 
@@ -49,15 +54,20 @@ export default function Navbar({ user }) {
             <HomeIcon /> Home
           </Link>
           {user.isAdmin && (
-            <Link href="/admin" className={`navbar-link ${isAdminPage ? 'active' : ''}`}>
-              <ManageIcon /> Manage Attendance
-            </Link>
+            <>
+              <Link href="/manage-attendance" className={`navbar-link ${pathname === '/manage-attendance' ? 'active' : ''}`}>
+                <ManageIcon /> Manage Attendance
+              </Link>
+              <Link href="/manage-attendance/members" className={`navbar-link ${pathname === '/manage-attendance/members' ? 'active' : ''}`}>
+                <ManageIcon /> Members
+              </Link>
+            </>
           )}
         </div>
 
         <div className="navbar-user">
-          <span className="navbar-user-name" title={user.email}>
-            {user.name}
+          <span className="navbar-user-name" title={String(user.name || '').length > 11 ? user.name : user.email}>
+            {shortName(user.name)}
             {user.isAdmin && <span className="navbar-admin-badge">Admin</span>}
           </span>
           <form action="/api/auth/logout" method="post">

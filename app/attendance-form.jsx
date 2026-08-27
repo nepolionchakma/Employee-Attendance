@@ -2,16 +2,24 @@
 
 import { useEffect, useState } from 'react'
 
-export default function AttendanceForm({ employeeName }) {
+function shortName(name) {
+  const n = String(name || '')
+  return n.length > 11 ? n.slice(0, 11) + '..' : n
+}
+
+export default function AttendanceForm({ employeeName, employeeEmail }) {
   const [status, setStatus] = useState('Office')
   const [check, setCheck] = useState(null)
   const [submitting, setSubmitting] = useState(false)
 
   useEffect(() => {
-    if (!employeeName) return
+    if (!employeeName && !employeeEmail) return
     let cancelled = false
 
-    fetch(`/api/attendance/status?employee=${encodeURIComponent(employeeName)}`)
+    const qs = employeeEmail
+      ? `email=${encodeURIComponent(employeeEmail)}`
+      : `employee=${encodeURIComponent(employeeName)}`
+    fetch(`/api/attendance/status?${qs}`)
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
         if (cancelled) return
@@ -30,18 +38,18 @@ export default function AttendanceForm({ employeeName }) {
     return () => {
       cancelled = true
     }
-  }, [employeeName])
+  }, [employeeName, employeeEmail])
 
   const handleSubmit = async (e) => {
     e.preventDefault()
-    if (!employeeName || submitting) return
+    if ((!employeeName && !employeeEmail) || submitting) return
 
     setSubmitting(true)
     try {
       const res = await fetch('/api/attendance', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ employeeName, status }),
+        body: JSON.stringify({ employeeName, employeeEmail, status }),
       })
       const data = await res.json()
 
@@ -69,8 +77,9 @@ export default function AttendanceForm({ employeeName }) {
       <div className="card">
         <form onSubmit={handleSubmit} className="attendance-form">
           <label htmlFor="employee">Employee</label>
-          <p id="employee" className="attendance-employee">
-            {employeeName}
+          <p id="employee" className="attendance-employee" title={String(employeeName || '').length > 11 ? employeeName : undefined}>
+            {shortName(employeeName)}
+            {employeeEmail && <span style={{ display: 'block', fontSize: 12, fontWeight: 400, color: 'var(--text)', marginTop: 2 }}>{employeeEmail}</span>}
           </p>
 
           <fieldset className="attendance-radio">
@@ -93,7 +102,7 @@ export default function AttendanceForm({ employeeName }) {
           <button
             type="submit"
             className="btn primary"
-            disabled={!employeeName || submitting}
+            disabled={(!employeeName && !employeeEmail) || submitting}
           >
             {submitting ? 'Submitting…' : 'Submit attendance'}
           </button>

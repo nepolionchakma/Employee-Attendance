@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation'
 import { getSessionUser } from '@/lib/auth'
 import AttendanceForm from './attendance-form'
 import Navbar from './components/Navbar'
+import HomeSummaryTable from './components/HomeSummaryTable'
 
 export const metadata = { title: 'Attendance' }
 
@@ -11,21 +12,42 @@ export default async function HomePage() {
 
   let summary = null
   try {
-    const { hasGoogleCredentials, getAdminGrid } = await import('@/lib/googleSheets')
+    const { hasGoogleCredentials, getAdminGrid, getEmployees, parseHeaderEmail, parseHeaderName } = await import('@/lib/googleSheets')
     if (hasGoogleCredentials()) {
-      const grid = await getAdminGrid('')
+      const [grid, directory] = await Promise.all([getAdminGrid(''), getEmployees()])
       if (grid?.kind === 'attendance' || grid?.employees) {
-        const employees = grid.employees || []
         const days = grid.days || []
         const absentDays = grid.absentDays || {}
-        const stats = employees.map((emp) => {
-          let present = 0
-          for (const d of days) {
-            const v = String(d.values?.[emp] || '').trim()
-            if (v === 'Office' || v === 'Home') present++
+        // Build map email -> header for quick lookup
+        const headerByEmail = new Map()
+        for (const h of grid.employees || []) {
+          const em = parseHeaderEmail(h)
+          if (em) headerByEmail.set(em.toLowerCase(), h)
+        }
+        // Use directory as source so sokol er email asbe
+        const source = directory && directory.length ? directory : (grid.employees || []).map((h) => ({
+          name: parseHeaderName(h),
+          email: parseHeaderEmail(h) || '',
+        }))
+        const stats = source.map((m) => {
+          const email = String(m.email || '').trim().toLowerCase()
+          const name = String(m.name || '').trim() || (email ? email.split('@')[0] : '')
+          // find header for this email in attendance sheet
+          let header = email ? headerByEmail.get(email) : null
+          if (!header) {
+            // fallback: try name match for legacy sheets without email in header
+            header = (grid.employees || []).find((h) => parseHeaderName(h).toLowerCase() === name.toLowerCase()) || null
           }
-          const absent = Number(absentDays[emp] ?? 0)
-          return { employee: emp, present, absent, total: present + absent }
+          let present = 0
+          let absent = 0
+          if (header) {
+            for (const d of days) {
+              const v = String(d.values?.[header] || '').trim()
+              if (v === 'Office' || v === 'Home') present++
+            }
+            absent = Number(absentDays[header] ?? 0)
+          }
+          return { employee: header || `${name} <${email}>`, name, email, present, absent, total: present + absent, hasColumn: !!header }
         })
         summary = { monthLabel: grid.tab, stats }
       }
@@ -37,7 +59,11 @@ export default async function HomePage() {
   const displayStats = (() => {
     if (!summary?.stats?.length) return []
     if (user.isAdmin) return summary.stats
-    const own = summary.stats.find((s) => s.employee.trim().toLowerCase() === user.name.trim().toLowerCase())
+    const ownEmail = String(user.email || '').trim().toLowerCase()
+    let own = summary.stats.find((s) => s.email && s.email.toLowerCase() === ownEmail)
+    if (!own) {
+      own = summary.stats.find((s) => s.name.trim().toLowerCase() === String(user.name).trim().toLowerCase())
+    }
     return own ? [own] : []
   })()
 
@@ -63,31 +89,7 @@ export default async function HomePage() {
                   : 'No attendance data yet.'}
               </p>
             ) : (
-              <div className="home-summary-wrap">
-                <table className="home-summary-table">
-                  <thead>
-                    <tr>
-                      <th>Employee</th>
-                      <th>Present</th>
-                      <th>Absent</th>
-                      <th>Total</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {displayStats.map((row) => (
-                      <tr key={row.employee} className={row.employee === user.name ? 'home-summary-own' : ''}>
-                        <td className="home-employee-cell">
-                          {row.employee}
-                          {row.employee === user.name && <span className="home-you-badge">You</span>}
-                        </td>
-                        <td className="home-present">{row.present}</td>
-                        <td className="home-absent">{row.absent}</td>
-                        <td className="home-total">{row.total}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              <HomeSummaryTable stats={displayStats} user={user} />
             )}
           </div>
         ) : (
@@ -96,7 +98,7 @@ export default async function HomePage() {
           </div>
         )}
 
-        <AttendanceForm employeeName={user.name} />
+        <AttendanceForm employeeName={user.name} employeeEmail={user.email} />
       </div>
     </>
   )

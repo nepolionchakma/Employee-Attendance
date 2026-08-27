@@ -13,7 +13,7 @@ export default async function proxy(request) {
     return NextResponse.redirect(new URL('/', request.url))
   }
 
-  if (pathname.startsWith('/admin')) {
+  if (pathname.startsWith('/admin') || pathname.startsWith('/manage-attendance')) {
     if (!session) return NextResponse.redirect(new URL('/login', request.url))
     if (!session.isAdmin) return NextResponse.redirect(new URL('/', request.url))
   }
@@ -22,5 +22,5 @@ export default async function proxy(request) {
 }
 
 export const config = {
-  matcher: ['/', '/login', '/admin/:path*'],
+  matcher: ['/', '/login', '/admin/:path*', '/manage-attendance/:path*'],
 }

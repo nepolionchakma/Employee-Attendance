@@ -592,6 +592,42 @@ a {
   vertical-align: middle;
 }
 
+.home-pagination {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 14px;
+  flex-wrap: wrap;
+}
+
+.home-pagination-info {
+  font-size: 13px;
+  color: var(--text);
+  font-weight: 500;
+}
+
+.home-pagination-dots {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-left: 4px;
+}
+
+.home-page-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--social-bg);
+  padding: 0;
+  cursor: pointer;
+}
+
+.home-page-dot.active {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
 .home-summary-own {
   background: var(--accent-bg);
 }

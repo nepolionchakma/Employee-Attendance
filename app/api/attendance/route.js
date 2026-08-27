@@ -15,11 +15,15 @@ export async function POST(request) {
   }
 
   const body = await request.json().catch(() => ({}))
-  const employeeName = String(body?.employeeName || '').trim()
+  const employeeEmail = String(body?.employeeEmail || body?.email || user.email || '').trim().toLowerCase()
+  const employeeName = String(body?.employeeName || body?.name || user.name || '').trim()
   const status = String(body?.status || 'Office').trim()
 
-  if (!employeeName) {
-    return NextResponse.json({ message: 'employeeName is required' }, { status: 400 })
+  if (!employeeEmail && !employeeName) {
+    return NextResponse.json({ message: 'employeeEmail or employeeName is required' }, { status: 400 })
+  }
+  if (!user.isAdmin && employeeEmail.toLowerCase() !== String(user.email).toLowerCase()) {
+    return NextResponse.json({ message: 'Forbidden: can only mark own attendance' }, { status: 403 })
   }
   if (!VALID_STATUSES.includes(status)) {
     return NextResponse.json(
@@ -31,25 +35,26 @@ export async function POST(request) {
   try {
     const { date, day, time } = nowParts()
 
-    const existing = await getAttendanceStatus(employeeName, day)
+    const existing = await getAttendanceStatus(employeeName, employeeEmail, day)
     if (existing.attended) {
       return NextResponse.json(
         {
           attended: true,
           status: existing.status,
-          message: `${employeeName} already attended today (${existing.status}) at ${time}`,
+          message: `${employeeName || employeeEmail} already attended today (${existing.status}) at ${time}`,
         },
         { status: 409 },
       )
     }
 
-    await markAttendanceStatus(employeeName, day, status)
+    await markAttendanceStatus(employeeName, employeeEmail, day, status)
     return NextResponse.json({
       attended: false,
       employee: employeeName,
+      email: employeeEmail,
       date,
       status,
-      message: `${employeeName} marked as ${status} for today (${date})`,
+      message: `${employeeName || employeeEmail} marked as ${status} for today (${date})`,
     })
   } catch (error) {
     console.error('POST /api/attendance failed:', error.message)
