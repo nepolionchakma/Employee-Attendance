@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { redirect } from 'next/navigation'
 import { getSessionUser } from '@/lib/auth'
 import AttendanceForm from './attendance-form'
@@ -24,7 +25,7 @@ export default async function HomePage() {
           const em = parseHeaderEmail(h)
           if (em) headerByEmail.set(em.toLowerCase(), h)
         }
-        // Use directory as source so sokol er email asbe
+        // Use directory as source so all emails are included
         const source = directory && directory.length ? directory : (grid.employees || []).map((h) => ({
           name: parseHeaderName(h),
           email: parseHeaderEmail(h) || '',

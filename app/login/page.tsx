@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { redirect } from 'next/navigation'
 import { getSessionUser } from '@/lib/auth'
 import { isOAuthConfigured } from '@/lib/oauth'

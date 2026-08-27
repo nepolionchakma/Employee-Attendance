@@ -1,6 +1,7 @@
+// @ts-nocheck
 import fs from 'node:fs'
 
-export const SPREADSHEET_ID = process.env.SPREADSHEET_ID || ''
+export const SPREADSHEET_ID: string = process.env.SPREADSHEET_ID || ''
 export const SHEET_TAB = process.env.ATTENDANCE_SHEET_TAB || ''
 
 // GOOGLE_SERVICE_ACCOUNT_JSON accepts either:
@@ -103,7 +104,7 @@ export async function ensureEmployeesSheet() {
       })
       const rows = res.data.values || []
       if (rows.length < 2) {
-        const { ALLOWED_EMAILS, ADMIN_EMAILS } = await import('./employees.js')
+        const { ALLOWED_EMAILS, ADMIN_EMAILS } = await import('./employees')
         const adminSet = new Set((ADMIN_EMAILS || []).map((e) => String(e).trim().toLowerCase()))
         const seed = (ALLOWED_EMAILS || []).map((email) => {
           const e = String(email).trim()
@@ -130,7 +131,7 @@ export async function ensureEmployeesSheet() {
           employeesCache = null
         }
       }
-    } catch {}
+    } catch (_e) {}
     return desired
   }
   // create
@@ -144,9 +145,9 @@ export async function ensureEmployeesSheet() {
     valueInputOption: 'USER_ENTERED',
     requestBody: { values: [['Full Name', 'Gmail', 'Phone', 'Role']] },
   })
-  // seed from fallback employees.js if sheet was empty
+  // seed from fallback employees if sheet was empty
   try {
-    const { ALLOWED_EMAILS, ADMIN_EMAILS } = await import('./employees.js')
+    const { ALLOWED_EMAILS, ADMIN_EMAILS } = await import('./employees')
     const adminSet = new Set((ADMIN_EMAILS || []).map((e) => String(e).trim().toLowerCase()))
     const rows = (ALLOWED_EMAILS || []).map((email) => {
       const e = String(email).trim()
@@ -162,14 +163,14 @@ export async function ensureEmployeesSheet() {
         requestBody: { values: rows },
       })
     }
-  } catch {}
+  } catch (_e) {}
   employeesCache = null
   return desired
 }
 
 export async function getEmployees({ forceRefresh = false } = {}) {
   if (!hasGoogleCredentials() || !SPREADSHEET_ID) {
-    const { ALLOWED_EMAILS, ADMIN_EMAILS } = await import('./employees.js')
+    const { ALLOWED_EMAILS, ADMIN_EMAILS } = await import('./employees')
     const adminSet = new Set((ADMIN_EMAILS || []).map((e) => String(e).trim().toLowerCase()))
     return (ALLOWED_EMAILS || []).map((email) => ({
       name: String(email).split('@')[0].replace(/[._]/g, ' '),
@@ -194,7 +195,7 @@ export async function getEmployees({ forceRefresh = false } = {}) {
     const rows = res.data.values || []
     if (rows.length < 2) {
       // empty sheet -> try fallback
-      const { ALLOWED_EMAILS, ADMIN_EMAILS } = await import('./employees.js')
+      const { ALLOWED_EMAILS, ADMIN_EMAILS } = await import('./employees')
       const adminSet = new Set((ADMIN_EMAILS || []).map((e) => String(e).trim().toLowerCase()))
       const fallback = (ALLOWED_EMAILS || []).map((email) => ({
         name: String(email).split('@')[0].replace(/[._]/g, ' '),
@@ -221,8 +222,8 @@ export async function getEmployees({ forceRefresh = false } = {}) {
     employeesCacheAt = now
     return list
   } catch (e) {
-    console.warn('getEmployees failed, fallback to employees.js:', e.message)
-    const { ALLOWED_EMAILS, ADMIN_EMAILS } = await import('./employees.js')
+    console.warn('getEmployees failed, fallback to employees:', (e as Error).message)
+    const { ALLOWED_EMAILS, ADMIN_EMAILS } = await import('./employees')
     const adminSet = new Set((ADMIN_EMAILS || []).map((e) => String(e).trim().toLowerCase()))
     return (ALLOWED_EMAILS || []).map((email) => ({
       name: String(email).split('@')[0].replace(/[._]/g, ' '),

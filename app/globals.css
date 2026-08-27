@@ -99,14 +99,6 @@ a {
   text-align: left;
 }
 
-.topbar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 24px;
-}
-
 .user-name {
   font-size: 14px;
   color: var(--text-h);
