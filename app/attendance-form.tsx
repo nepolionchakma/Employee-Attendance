@@ -1,3 +1,4 @@
+// @ts-nocheck
 'use client'
 
 import { useEffect, useState } from 'react'
@@ -5,6 +6,35 @@ import { useEffect, useState } from 'react'
 function shortName(name) {
   const n = String(name || '')
   return n.length > 11 ? n.slice(0, 11) + '..' : n
+}
+
+function getLocation() {
+  return new Promise((resolve) => {
+    if (!('geolocation' in navigator)) {
+      resolve('Unknown')
+      return
+    }
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        try {
+          const { latitude, longitude } = pos.coords
+          const res = await fetch(
+            `https://nominatim.openstreetmap.org/reverse?lat=${latitude}&lon=${longitude}&format=json`,
+          )
+          const data = await res.json()
+          const addr = data.address || {}
+          console.log(addr, 'state_district')
+          const road = addr.road || addr.county || ''
+          const district = addr.state_district || ''
+          resolve([road, district].filter(Boolean).join(', ') || `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`)
+        } catch {
+          resolve('Unknown')
+        }
+      },
+      () => resolve('Unknown'),
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 },
+    )
+  })
 }
 
 export default function AttendanceForm({ employeeName, employeeEmail }) {
@@ -26,9 +56,9 @@ export default function AttendanceForm({ employeeName, employeeEmail }) {
         setCheck(
           data?.attended
             ? {
-                kind: 'already',
-                message: `${employeeName} already attended today (${data.status})`,
-              }
+              kind: 'already',
+              message: `${employeeName} already attended today (${data.status})`,
+            }
             : { kind: 'ready', message: 'Not marked yet — you can submit.' },
         )
       })
@@ -46,10 +76,18 @@ export default function AttendanceForm({ employeeName, employeeEmail }) {
 
     setSubmitting(true)
     try {
+      const time = new Intl.DateTimeFormat('en-US', {
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true,
+        timeZone: 'Asia/Dhaka',
+      }).format(new Date())
+      const location = await getLocation()
+
       const res = await fetch('/api/attendance', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ employeeName, employeeEmail, status }),
+        body: JSON.stringify({ employeeName, employeeEmail, status, time, location }),
       })
       const data = await res.json()
 

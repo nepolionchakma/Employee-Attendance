@@ -7,7 +7,6 @@ export const runtime = 'nodejs'
 
 const VALID_STATUSES = ['Office', 'Home']
 
-// Mark attendance for today. Duplicate (same employee + same day) is rejected.
 export async function POST(request) {
   const user = await getSessionUser()
   if (!user) {
@@ -18,6 +17,8 @@ export async function POST(request) {
   const employeeEmail = String(body?.employeeEmail || body?.email || user.email || '').trim().toLowerCase()
   const employeeName = String(body?.employeeName || body?.name || user.name || '').trim()
   const status = String(body?.status || 'Office').trim()
+  const time = String(body?.time || '').trim()
+  const location = String(body?.location || '').trim()
 
   if (!employeeEmail && !employeeName) {
     return NextResponse.json({ message: 'employeeEmail or employeeName is required' }, { status: 400 })
@@ -33,7 +34,7 @@ export async function POST(request) {
   }
 
   try {
-    const { date, day, time } = nowParts()
+    const { date, day } = nowParts()
 
     const existing = await getAttendanceStatus(employeeName, employeeEmail, day)
     if (existing.attended) {
@@ -41,19 +42,21 @@ export async function POST(request) {
         {
           attended: true,
           status: existing.status,
-          message: `${employeeName || employeeEmail} already attended today (${existing.status}) at ${time}`,
+          message: `${employeeName || employeeEmail} already attended today (${existing.status})`,
         },
         { status: 409 },
       )
     }
 
-    await markAttendanceStatus(employeeName, employeeEmail, day, status)
+    await markAttendanceStatus(employeeName, employeeEmail, day, status, time, location)
     return NextResponse.json({
       attended: false,
       employee: employeeName,
       email: employeeEmail,
       date,
       status,
+      time,
+      location,
       message: `${employeeName || employeeEmail} marked as ${status} for today (${date})`,
     })
   } catch (error) {

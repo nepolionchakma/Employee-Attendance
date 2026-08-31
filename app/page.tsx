@@ -1,8 +1,10 @@
+// @ts-nocheck
 import { redirect } from 'next/navigation'
 import { getSessionUser } from '@/lib/auth'
 import AttendanceForm from './attendance-form'
 import Navbar from './components/Navbar'
 import HomeSummaryTable from './components/HomeSummaryTable'
+import LocationGate from './components/LocationGate'
 
 export const metadata = { title: 'Attendance' }
 
@@ -18,13 +20,11 @@ export default async function HomePage() {
       if (grid?.kind === 'attendance' || grid?.employees) {
         const days = grid.days || []
         const absentDays = grid.absentDays || {}
-        // Build map email -> header for quick lookup
         const headerByEmail = new Map()
         for (const h of grid.employees || []) {
           const em = parseHeaderEmail(h)
           if (em) headerByEmail.set(em.toLowerCase(), h)
         }
-        // Use directory as source so sokol er email asbe
         const source = directory && directory.length ? directory : (grid.employees || []).map((h) => ({
           name: parseHeaderName(h),
           email: parseHeaderEmail(h) || '',
@@ -32,10 +32,8 @@ export default async function HomePage() {
         const stats = source.map((m) => {
           const email = String(m.email || '').trim().toLowerCase()
           const name = String(m.name || '').trim() || (email ? email.split('@')[0] : '')
-          // find header for this email in attendance sheet
           let header = email ? headerByEmail.get(email) : null
           if (!header) {
-            // fallback: try name match for legacy sheets without email in header
             header = (grid.employees || []).find((h) => parseHeaderName(h).toLowerCase() === name.toLowerCase()) || null
           }
           let present = 0
@@ -98,7 +96,9 @@ export default async function HomePage() {
           </div>
         )}
 
-        <AttendanceForm employeeName={user.name} employeeEmail={user.email} />
+        <LocationGate>
+          <AttendanceForm employeeName={user.name} employeeEmail={user.email} />
+        </LocationGate>
       </div>
     </>
   )

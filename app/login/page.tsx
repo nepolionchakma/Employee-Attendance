@@ -1,6 +1,8 @@
+// @ts-nocheck
 import { redirect } from 'next/navigation'
 import { getSessionUser } from '@/lib/auth'
 import { isOAuthConfigured } from '@/lib/oauth'
+import LoginGate from './LoginGate'
 
 export const metadata = { title: 'Sign in' }
 
@@ -50,14 +52,16 @@ export default async function LoginPage({ searchParams }) {
       </p>
 
       <div className="card">
-        {configured ? (
-          <a className="btn google-btn" href="/api/auth/google">
-            <GoogleIcon />
-            Sign in with Google
-          </a>
-        ) : (
-          <p className="login-error">Google login is not configured yet.</p>
-        )}
+        <LoginGate>
+          {configured ? (
+            <a className="btn google-btn" href="/api/auth/google">
+              <GoogleIcon />
+              Sign in with Google
+            </a>
+          ) : (
+            <p className="login-error">Google login is not configured yet.</p>
+          )}
+        </LoginGate>
         {message && <p className="login-error">{message}</p>}
       </div>
     </div>

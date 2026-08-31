@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
@@ -106,7 +107,7 @@ export default function MembersClient() {
   if (loading) {
     return (
       <div className="page admin-page">
-        <p>Loading members…</p>
+        <p>Loading…</p>
       </div>
     )
   }

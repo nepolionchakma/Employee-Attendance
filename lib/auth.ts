@@ -1,4 +1,4 @@
-import { SignJWT, jwtVerify } from 'jose'
+import { SignJWT, jwtVerify, type JWTPayload } from 'jose'
 import { cookies } from 'next/headers'
 import { isAdminEmail } from './oauth'
 
@@ -9,17 +9,30 @@ const SESSION_SECRET = process.env.SESSION_SECRET || 'insecure-dev-secret-change
 const encodedKey = new TextEncoder().encode(SESSION_SECRET)
 const SESSION_MAX_AGE = 60 * 60 * 24 * 7 // 7 days
 
+export type SessionUser = {
+  name: string
+  email: string
+  picture: string | null
+  isAdmin: boolean
+}
+
+export type SessionPayload = JWTPayload & {
+  name: string
+  email: string
+  picture: string | null
+}
+
 export function sessionCookieOptions(maxAge = SESSION_MAX_AGE) {
   return {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
+    sameSite: 'lax' as const,
     path: '/',
     maxAge,
   }
 }
 
-export async function createSessionToken(user) {
+export async function createSessionToken(user: { name: string; email: string; picture: string | null }): Promise<string> {
   return new SignJWT({ name: user.name, email: user.email, picture: user.picture })
     .setProtectedHeader({ alg: 'HS256' })
     .setIssuedAt()
@@ -27,16 +40,17 @@ export async function createSessionToken(user) {
     .sign(encodedKey)
 }
 
-export async function verifySessionToken(token) {
+export async function verifySessionToken(token: string | undefined): Promise<SessionUser | null> {
   if (!token) return null
   try {
     const { payload } = await jwtVerify(token, encodedKey, { algorithms: ['HS256'] })
-    const email = payload.email
+    const p = payload as SessionPayload
+    const email = String(p.email || '')
     const isAdmin = await isAdminEmail(email)
     return {
-      name: payload.name,
+      name: String(p.name || ''),
       email,
-      picture: payload.picture,
+      picture: (p.picture as string | null) ?? null,
       isAdmin,
     }
   } catch {
@@ -44,7 +58,7 @@ export async function verifySessionToken(token) {
   }
 }
 
-export async function getSessionUser() {
+export async function getSessionUser(): Promise<SessionUser | null> {
   const cookieStore = await cookies()
   return verifySessionToken(cookieStore.get(SESSION_COOKIE)?.value)
 }
