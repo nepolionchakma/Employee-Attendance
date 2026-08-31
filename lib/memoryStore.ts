@@ -44,7 +44,7 @@ export async function markAttendanceInMemory(
   }
   const key = `${String(employeeEmail || employeeName).toLowerCase()}::${day}`
   const t = String(time || '').trim() || new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }).format(new Date())
-  const loc = String(location || '').trim() || 'Unknown'
+  const loc = String(location || '').trim() || 'Not Available'
   store.set(key, `${status}|${t}|${loc}`)
   return true
 }

@@ -317,10 +317,9 @@ function columnLetter(index) {
 /* ---- 3-column structure detection ---- */
 
 function isNewThreeColStructure(rows, headerRow) {
-  if (headerRow + 1 >= rows.length) return false
-  const subRow = rows[headerRow + 1] || []
-  for (let i = 2; i < Math.min(5, subRow.length); i++) {
-    if (String(subRow[i] || '').trim().toLowerCase() === 'presence') return true
+  const row = rows[headerRow] || []
+  for (let i = 2; i < Math.min(8, row.length); i++) {
+    if (String(row[i] || '').trim().toLowerCase() === 'presence') return true
   }
   return false
 }
@@ -369,7 +368,7 @@ async function migrateToThreeCol(sheets, tab) {
     for (let i = 2; i < headers.length; i++) {
       const v = String(row[i] || '').trim()
       if (v.toLowerCase() === 'absent') {
-        newRow.push('Absent', '12:00 AM', 'Unknown')
+        newRow.push('Absent', '12:00 AM', 'Not Available')
       } else if (v) {
         newRow.push(v, '', '')
       } else {
@@ -389,7 +388,7 @@ async function migrateToThreeCol(sheets, tab) {
   return true
 }
 
-/* ---- createTab with 2-row headers (3-col per employee) ---- */
+/* ---- createTab with Timestamp row + Date/Day/Presence/Time/Location headers ---- */
 
 async function createTab(sheets, title, year, month) {
   await sheets.spreadsheets.batchUpdate({
@@ -400,14 +399,14 @@ async function createTab(sheets, title, year, month) {
   })
 
   const daysInMonth = new Date(year, month, 0).getDate()
-  const titleRow = daysInMonth + 2
-  const totalRow = titleRow + 1
+  const totalRow = daysInMonth + 3
 
-  const row0 = ['Date', 'Day']
-  const row1 = ['', '']
+  const dateDayRow = ['Date', 'Day', 'Presence', 'Time', 'Location']
+  const timestampRow = Array(dateDayRow.length).fill('')
+  timestampRow[0] = 'Timestamp'
   const values = [
-    row0,
-    row1,
+    timestampRow,
+    dateDayRow,
     ...Array.from({ length: daysInMonth }, (_, i) => [String(i + 1), weekdayShort(year, month, i + 1)]),
     [ABSENT_SECTION, ''],
     ['Total', ''],
@@ -422,14 +421,16 @@ async function createTab(sheets, title, year, month) {
 
   await boldCells(sheets, title, [
     { row: 0, col: 0 },
-    { row: 0, col: 1 },
     { row: 1, col: 0 },
     { row: 1, col: 1 },
-    { row: titleRow, col: 0 },
+    { row: 1, col: 2 },
+    { row: 1, col: 3 },
+    { row: 1, col: 4 },
+    { row: totalRow - 1, col: 0 },
     { row: totalRow, col: 0 },
   ])
 
-  console.log(`Created attendance tab "${title}" (${daysInMonth} days, 3-col structure)`)
+  console.log(`Created attendance tab "${title}" (${daysInMonth} days, 3-col with Timestamp row)`)
   return title
 }
 
@@ -477,8 +478,19 @@ function formatEmployeeHeader(name, email) {
   return `${n} <${e}>`
 }
 
+function findEmployeeNamesRow(rows, headerRow) {
+  if (headerRow > 0 && rows[headerRow - 1]) {
+    const firstCell = String(rows[headerRow - 1][2] || '').trim()
+    if (firstCell.includes('@')) return headerRow - 1
+    const header = rows[headerRow] || []
+    if (String(header[2] || '').trim().toLowerCase() === 'presence') return headerRow - 1
+  }
+  return headerRow
+}
+
 function findEmployeeColumnByEmail(rows, headerRow, email) {
-  const headers = rows[headerRow]
+  const namesRow = findEmployeeNamesRow(rows, headerRow)
+  const headers = rows[namesRow]
   const target = String(email || '').trim().toLowerCase()
   if (!target) return -1
   const step = isNewThreeColStructure(rows, headerRow) ? COLS_PER_EMPLOYEE : 1
@@ -490,33 +502,36 @@ function findEmployeeColumnByEmail(rows, headerRow, email) {
 }
 
 function findEmployeeColumnLegacyByName(rows, headerRow, name) {
-  const headers = rows[headerRow]
+  const namesRow = findEmployeeNamesRow(rows, headerRow)
+  const headers = rows[namesRow]
   const target = String(name || '').trim().toLowerCase()
   if (!target) return -1
   const step = isNewThreeColStructure(rows, headerRow) ? COLS_PER_EMPLOYEE : 1
   for (let i = 2; i < headers.length; i += step) {
     const h = String(headers[i] || '').trim()
     if (!h) continue
-    if (parseHeaderEmail(h)) continue
+    if (parseHeaderName(h).toLowerCase() === target) return i
     if (h.toLowerCase() === target) return i
   }
   return -1
 }
 
 function findEmployeeColumn(rows, headerRow, employeeName, employeeEmail) {
+  const namesRow = findEmployeeNamesRow(rows, headerRow)
   if (employeeEmail) {
     const byEmail = findEmployeeColumnByEmail(rows, headerRow, employeeEmail)
     if (byEmail !== -1) return byEmail
   }
-  if (employeeName) {
-    const byName = findEmployeeColumnLegacyByName(rows, headerRow, employeeName)
-    if (byName !== -1) return byName
-    const headers = rows[headerRow]
-    const step = isNewThreeColStructure(rows, headerRow) ? COLS_PER_EMPLOYEE : 1
-    const idx = headers.findIndex(
-      (h) => String(h || '').trim().toLowerCase() === String(employeeName).trim().toLowerCase(),
-    )
-    if (idx !== -1) return idx
+    if (employeeName) {
+      const byName = findEmployeeColumnLegacyByName(rows, headerRow, employeeName)
+      if (byName !== -1) return byName
+      const headers = rows[namesRow]
+      const step = isNewThreeColStructure(rows, headerRow) ? COLS_PER_EMPLOYEE : 1
+      const target = String(employeeName).trim().toLowerCase()
+      const idx = headers.findIndex(
+        (h) => String(h || '').trim().toLowerCase() === target || parseHeaderName(String(h || '').trim()).toLowerCase() === target,
+      )
+      if (idx !== -1) return idx
   }
   const key = employeeEmail || employeeName
   throw new Error(
@@ -541,14 +556,15 @@ async function ensureEmployeeColumn(sheets, tab, employeeName, employeeEmail) {
   })
   let rows = res.data.values || []
   let headerRow = findHeaderRow(rows)
+  const namesRow = findEmployeeNamesRow(rows, headerRow)
 
   if (email && findEmployeeColumnByEmail(rows, headerRow, email) !== -1) return
 
   if (email && name) {
     const legacyIdx = findEmployeeColumnLegacyByName(rows, headerRow, name)
     if (legacyIdx !== -1) {
-      const newHeader = formatEmployeeHeader(rows[headerRow][legacyIdx] || name, email)
-      const range = `${tab}!${columnLetter(legacyIdx)}${headerRow + 1}`
+      const newHeader = formatEmployeeHeader(rows[namesRow][legacyIdx] || name, email)
+      const range = `${tab}!${columnLetter(legacyIdx)}${namesRow}`
       await sheets.spreadsheets.values.update({
         spreadsheetId: SPREADSHEET_ID,
         range,
@@ -560,37 +576,34 @@ async function ensureEmployeeColumn(sheets, tab, employeeName, employeeEmail) {
     }
   }
 
-  if (name) {
-    const existsName = rows[headerRow].some((h) => String(h || '').trim().toLowerCase() === name.toLowerCase())
-    if (existsName && !email) return
-  }
+    if (name) {
+      const existsName = rows[namesRow].some((h) => parseHeaderName(String(h || '').trim()).toLowerCase() === name.toLowerCase())
+      if (existsName && !email) return
+    }
 
   const isNew = isNewThreeColStructure(rows, headerRow)
   const newHeader = email ? formatEmployeeHeader(name || email, email) : name
 
   if (isNew) {
-    const startCol = rows[headerRow].length
-    const headerRange = `${tab}!${columnLetter(startCol)}${headerRow + 1}:${columnLetter(startCol + 2)}${headerRow + 1}`
+    const startCol = rows[namesRow].length
     await sheets.spreadsheets.values.update({
       spreadsheetId: SPREADSHEET_ID,
-      range: headerRange,
+      range: `${tab}!${columnLetter(startCol)}${namesRow}`,
       valueInputOption: 'USER_ENTERED',
-      requestBody: { values: [[newHeader, '', '']] },
+      requestBody: { values: [[newHeader]] },
     })
-    const subHeaderRow = headerRow + 1
-    const subHeaders = rows[subHeaderRow] || []
-    if (String(subHeaders[startCol] || '').trim().toLowerCase() !== 'presence') {
-      const subRange = `${tab}!${columnLetter(startCol)}${subHeaderRow + 1}:${columnLetter(startCol + 2)}${subHeaderRow + 1}`
+    const headerCells = rows[headerRow] || []
+    if (String(headerCells[startCol] || '').trim().toLowerCase() !== 'presence') {
       await sheets.spreadsheets.values.update({
         spreadsheetId: SPREADSHEET_ID,
-        range: subRange,
+        range: `${tab}!${columnLetter(startCol)}${headerRow}:${columnLetter(startCol + 2)}${headerRow}`,
         valueInputOption: 'USER_ENTERED',
         requestBody: { values: [['Presence', 'Time', 'Location']] },
       })
     }
     console.log(`Added employee 3-col "${newHeader}" to "${tab}" at col ${startCol}`)
   } else {
-    const range = `${tab}!${columnLetter(rows[headerRow].length)}${headerRow + 1}`
+    const range = `${tab}!${columnLetter(rows[namesRow].length)}${namesRow}`
     await sheets.spreadsheets.values.update({
       spreadsheetId: SPREADSHEET_ID,
       range,
@@ -601,41 +614,67 @@ async function ensureEmployeeColumn(sheets, tab, employeeName, employeeEmail) {
   }
 }
 
-/** Fills empty cells for past days with "Absent" (and "12:00 AM | Unknown" for 3-col). */
+/** Fills empty cells for past days with "Absent" (and "12:00 AM | Not Available" for 3-col). */
 async function markAbsentForPastDays(sheets, tab, rows) {
   const { day: today } = nowParts()
   const headerRow = findHeaderRow(rows)
+  const namesRow = findEmployeeNamesRow(rows, headerRow)
   const firstEmployeeCol = 2
   const lastEmployeeCol = rows[headerRow].length
-  let changed = false
   const is3col = isNewThreeColStructure(rows, headerRow)
+
+  if (namesRow < headerRow) {
+    while (rows[namesRow].length < lastEmployeeCol) rows[namesRow].push('')
+  }
+
+  for (let i = 0; i < rows.length; i++) {
+    for (let j = 0; j < rows[i].length; j++) {
+      if (String(rows[i][j] || '').trim() === 'Not Availabale') {
+        rows[i][j] = 'Not Available'
+      }
+    }
+  }
 
   for (let i = headerRow + 1; i < rows.length; i++) {
     const day = Number(rows[i][0])
-    if (!Number.isInteger(day) || day >= today) break
+    if (!Number.isInteger(day)) break
+    if (day >= today) continue
     for (let c = firstEmployeeCol; c < lastEmployeeCol; c++) {
       if (String(rows[i][c] ?? '').trim() === '') {
         if (is3col) {
           rows[i][c] = 'Absent'
           rows[i][c + 1] = '12:00 AM'
-          rows[i][c + 2] = 'Unknown'
+          rows[i][c + 2] = 'Not Available'
           c += 2
         } else {
           rows[i][c] = 'Absent'
         }
-        changed = true
       }
     }
   }
 
-  if (!changed) return
-  const lastCol = Math.max(...rows.map((r) => r.length))
-  await sheets.spreadsheets.values.update({
-    spreadsheetId: SPREADSHEET_ID,
-    range: `${tab}!A1:${columnLetter(lastCol - 1)}${rows.length}`,
-    valueInputOption: 'USER_ENTERED',
-    requestBody: { values: rows },
-  })
+  let lastDayRow = headerRow + 1
+  for (let i = headerRow + 1; i < rows.length; i++) {
+    const day = Number(rows[i][0])
+    if (!Number.isInteger(day)) break
+    lastDayRow = i
+  }
+
+  const dataRows = []
+  for (let i = headerRow + 1; i <= lastDayRow; i++) {
+    const row = [...(rows[i] || [])]
+    while (row.length < lastEmployeeCol) row.push('')
+    dataRows.push(row.slice(0, lastEmployeeCol))
+  }
+
+  if (dataRows.length > 0) {
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: SPREADSHEET_ID,
+      range: `${tab}!A${headerRow + 2}:${columnLetter(lastEmployeeCol - 1)}${headerRow + 1 + dataRows.length}`,
+      valueInputOption: 'USER_ENTERED',
+      requestBody: { values: dataRows },
+    })
+  }
   console.log(`Marked "Absent" for past days in "${tab}"`)
 }
 
@@ -672,10 +711,16 @@ async function updateAbsentSummary(sheets, tab, rows) {
   }
   if (titleRow === -1) titleRow = rows.length
 
-  const values = [
-    [ABSENT_SECTION, '', ...employeeCols.map((col) => counts.get(col))],
-    ['Total', total],
-  ]
+  const totalCols = rows[headerRow].length
+  const absentRow = [ABSENT_SECTION, '']
+  for (let c = 2; c < totalCols; c++) {
+    absentRow.push(counts.has(c) ? counts.get(c) : '')
+  }
+
+  const totalRow = ['Total', total]
+  while (totalRow.length < totalCols) totalRow.push('')
+
+  const values = [absentRow, totalRow]
 
   await sheets.spreadsheets.values.update({
     spreadsheetId: SPREADSHEET_ID,
@@ -792,7 +837,7 @@ export async function markAttendance(employeeName, employeeEmail, day, status, t
   const colIdx = findEmployeeColumn(rows, headerRow, employeeName, employeeEmail)
 
   const t = String(time || '').trim() || new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: TZ }).format(new Date())
-  const loc = String(location || '').trim() || 'Unknown'
+  const loc = String(location || '').trim() || 'Not Available'
 
   if (isNew) {
     const range = `${tab}!${columnLetter(colIdx)}${rowIdx + 1}:${columnLetter(colIdx + 2)}${rowIdx + 1}`
@@ -941,12 +986,13 @@ export async function getAdminGrid(tab) {
   }
   const rows = await loadGrid(sheets, title)
   const headerRow = findHeaderRow(rows)
+  const namesRow = findEmployeeNamesRow(rows, headerRow)
   const headers = rows[headerRow]
   const is3col = isNewThreeColStructure(rows, headerRow)
   const step = is3col ? COLS_PER_EMPLOYEE : 1
   const employees = []
-  for (let c = 2; c < headers.length; c += step) {
-    const n = String(headers[c] ?? '').trim()
+  for (let c = 2; c < rows[namesRow].length; c++) {
+    const n = parseHeaderName(String(rows[namesRow][c] ?? '').trim())
     if (n) employees.push(n)
   }
   const days = []
@@ -1014,7 +1060,7 @@ export async function adminUpdateCell(tab, employeeName, dayLabel, status, emplo
       spreadsheetId: SPREADSHEET_ID,
       range,
       valueInputOption: 'USER_ENTERED',
-      requestBody: { values: [[normalized, t, 'Unknown']] },
+      requestBody: { values: [[normalized, t, 'Not Available']] },
     })
   } else {
     const range = `${title}!${columnLetter(colIdx)}${rowIdx + 1}`
