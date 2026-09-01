@@ -41,10 +41,7 @@ export default async function HomePage() {
         const stats = source.map((m: { name?: string; email?: string }) => {
           const email = String(m.email || '').trim().toLowerCase()
           const name = String(m.name || '').trim() || (email ? email.split('@')[0] : '')
-          let header = email ? headerByEmail.get(email) : null
-          if (!header) {
-            header = (grid.employees || []).find((h: string) => parseHeaderName(h).toLowerCase() === name.toLowerCase()) || null
-          }
+          const header = email ? headerByEmail.get(email) || null : null
           let present = 0
           let absent = 0
           if (header) {
@@ -67,10 +64,7 @@ export default async function HomePage() {
     if (!summary?.stats?.length) return []
     if (user.isAdmin) return summary.stats
     const ownEmail = String(user.email || '').trim().toLowerCase()
-    let own = summary.stats.find((s) => s.email && s.email.toLowerCase() === ownEmail)
-    if (!own) {
-      own = summary.stats.find((s) => s.name.trim().toLowerCase() === String(user.name).trim().toLowerCase())
-    }
+    const own = summary.stats.find((s) => s.email && s.email.toLowerCase() === ownEmail)
     return own ? [own] : []
   })()
 

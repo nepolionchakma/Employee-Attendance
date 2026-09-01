@@ -523,20 +523,28 @@ function findEmployeeColumnLegacyByName(rows: any[], headerRow: number, name: st
 
 function findEmployeeColumn(rows: any[], headerRow: number, employeeName: string, employeeEmail?: string) {
   const namesRow = findEmployeeNamesRow(rows, headerRow)
+  // Always try email first — emails are unique identifiers
   if (employeeEmail) {
     const byEmail = findEmployeeColumnByEmail(rows, headerRow, employeeEmail)
     if (byEmail !== -1) return byEmail
+    // Email provided but not found — don't fall back to name (name may belong to another user)
+    const key = employeeEmail || employeeName
+    throw new Error(
+      `Employee "${key}" not found in the sheet headers. ` +
+        'Add a column with that exact name, or fix the name in lib/employees.',
+    )
   }
-    if (employeeName) {
-      const byName = findEmployeeColumnLegacyByName(rows, headerRow, employeeName)
-      if (byName !== -1) return byName
-      const headers = rows[namesRow]
-      const step = isNewThreeColStructure(rows, headerRow) ? COLS_PER_EMPLOYEE : 1
-      const target = String(employeeName).trim().toLowerCase()
-      const idx = headers.findIndex(
-        (h: any) => String(h || '').trim().toLowerCase() === target || parseHeaderName(String(h || '').trim()).toLowerCase() === target,
-      )
-      if (idx !== -1) return idx
+  // No email — fall back to name matching (only safe when email is not available)
+  if (employeeName) {
+    const byName = findEmployeeColumnLegacyByName(rows, headerRow, employeeName)
+    if (byName !== -1) return byName
+    const headers = rows[namesRow]
+    const step = isNewThreeColStructure(rows, headerRow) ? COLS_PER_EMPLOYEE : 1
+    const target = String(employeeName).trim().toLowerCase()
+    const idx = headers.findIndex(
+      (h: any) => String(h || '').trim().toLowerCase() === target || parseHeaderName(String(h || '').trim()).toLowerCase() === target,
+    )
+    if (idx !== -1) return idx
   }
   const key = employeeEmail || employeeName
   throw new Error(
@@ -568,22 +576,26 @@ async function ensureEmployeeColumn(sheets: any, tab: string, employeeName: stri
   if (email && name) {
     const legacyIdx = findEmployeeColumnLegacyByName(rows, headerRow, name)
     if (legacyIdx !== -1) {
-      const newHeader = formatEmployeeHeader(rows[namesRow][legacyIdx] || name, email)
-      const range = `${tab}!${columnLetter(legacyIdx)}${namesRow + 1}`
-      await sheets.spreadsheets.values.update({
-        spreadsheetId: SPREADSHEET_ID,
-        range,
-        valueInputOption: 'USER_ENTERED',
-        requestBody: { values: [[newHeader]] },
-      })
-      console.log(`Claimed legacy column for "${email}" -> "${newHeader}" in "${tab}"`)
-      return
+      const existingEmail = parseHeaderEmail(rows[namesRow][legacyIdx] || '')
+      // Only claim legacy column if it has no email yet (truly unclaimed)
+      if (!existingEmail) {
+        const newHeader = formatEmployeeHeader(rows[namesRow][legacyIdx] || name, email)
+        const range = `${tab}!${columnLetter(legacyIdx)}${namesRow + 1}`
+        await sheets.spreadsheets.values.update({
+          spreadsheetId: SPREADSHEET_ID,
+          range,
+          valueInputOption: 'USER_ENTERED',
+          requestBody: { values: [[newHeader]] },
+        })
+        console.log(`Claimed legacy column for "${email}" -> "${newHeader}" in "${tab}"`)
+        return
+      }
     }
   }
 
-    if (name) {
+    if (name && !email) {
       const existsName = rows[namesRow].some((h: any) => parseHeaderName(String(h || '').trim()).toLowerCase() === name.toLowerCase())
-      if (existsName && !email) return
+      if (existsName) return
     }
 
   const hasExistingEmpCols = (rows[headerRow]?.length ?? 0) > 2
