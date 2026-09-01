@@ -780,6 +780,7 @@ const EMP_COLORS = [
   { red: 0.816, green: 0.878, blue: 0.89 },
 ]
 const PINK_COLOR = { red: 0.918, green: 0.82, blue: 0.863 }
+const FRIDAY_COLOR = { red: 1.0, green: 0.92, blue: 0.8 }
 const SOLID_MEDIUM = { style: 'SOLID_MEDIUM' }
 
 async function applyEmployeeFormatting(sheets: any, tab: string) {
@@ -854,6 +855,8 @@ async function applyEmployeeFormatting(sheets: any, tab: string) {
   for (let r = headerRow + 1; r <= lastDayRow; r++) {
     const dayName = String(rows[r][1] || '').trim()
     if (dayName === 'Fri') {
+      const totalCols = 2 + numEmps * COLS_PER_EMPLOYEE
+      requests.push(bgCells(r, 0, totalCols, FRIDAY_COLOR))
       requests.push(bdrCell(r, 2, ['left', 'right']))
     } else {
       for (let i = 0; i < numEmps; i++) {

@@ -292,7 +292,7 @@ export default function AdminClient({ user }: { user: AdminClientUser }) {
                 </thead>
                 <tbody>
                   {grid.days.map((row) => (
-                    <tr key={row.date}>
+                    <tr key={row.date} className={row.day === 'Fri' ? 'admin-row-friday' : ''}>
                       <td className="admin-date">{row.date}</td>
                       <td className="admin-day">{row.day}</td>
                       {grid.employees.map((emp) => {
