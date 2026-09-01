@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { getSessionUser } from '@/lib/auth'
 
 export const runtime = 'nodejs'
@@ -13,13 +13,14 @@ export async function GET() {
     await ensureEmployeesSheet()
     const members = await getEmployees({ forceRefresh: true })
     return NextResponse.json({ members })
-  } catch (e) {
-    console.error('GET /api/admin/members', e.message)
-    return NextResponse.json({ message: e.message }, { status: 500 })
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e)
+    console.error('GET /api/admin/members', msg)
+    return NextResponse.json({ message: msg }, { status: 500 })
   }
 }
 
-export async function POST(request) {
+export async function POST(request: NextRequest) {
   const user = await getSessionUser()
   if (!user) return NextResponse.json({ message: 'Not authenticated' }, { status: 401 })
   if (!user.isAdmin) return NextResponse.json({ message: 'Forbidden' }, { status: 403 })
@@ -34,13 +35,14 @@ export async function POST(request) {
     const { addEmployee } = await import('@/lib/googleSheets')
     await addEmployee({ name, email, phone, role })
     return NextResponse.json({ ok: true })
-  } catch (e) {
-    console.error('POST /api/admin/members', e.message)
-    return NextResponse.json({ message: e.message }, { status: 500 })
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e)
+    console.error('POST /api/admin/members', msg)
+    return NextResponse.json({ message: msg }, { status: 500 })
   }
 }
 
-export async function PUT(request) {
+export async function PUT(request: NextRequest) {
   const user = await getSessionUser()
   if (!user) return NextResponse.json({ message: 'Not authenticated' }, { status: 401 })
   if (!user.isAdmin) return NextResponse.json({ message: 'Forbidden' }, { status: 403 })
@@ -56,13 +58,14 @@ export async function PUT(request) {
     const { updateEmployee } = await import('@/lib/googleSheets')
     await updateEmployee(index, { name, email, phone, role })
     return NextResponse.json({ ok: true })
-  } catch (e) {
-    console.error('PUT /api/admin/members', e.message)
-    return NextResponse.json({ message: e.message }, { status: 500 })
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e)
+    console.error('PUT /api/admin/members', msg)
+    return NextResponse.json({ message: msg }, { status: 500 })
   }
 }
 
-export async function DELETE(request) {
+export async function DELETE(request: NextRequest) {
   const user = await getSessionUser()
   if (!user) return NextResponse.json({ message: 'Not authenticated' }, { status: 401 })
   if (!user.isAdmin) return NextResponse.json({ message: 'Forbidden' }, { status: 403 })
@@ -73,8 +76,9 @@ export async function DELETE(request) {
     const { deleteEmployee } = await import('@/lib/googleSheets')
     await deleteEmployee(index)
     return NextResponse.json({ ok: true })
-  } catch (e) {
-    console.error('DELETE /api/admin/members', e.message)
-    return NextResponse.json({ message: e.message }, { status: 500 })
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e)
+    console.error('DELETE /api/admin/members', msg)
+    return NextResponse.json({ message: msg }, { status: 500 })
   }
 }

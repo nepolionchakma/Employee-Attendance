@@ -1,14 +1,19 @@
-// @ts-nocheck
 'use client'
 
 import { useEffect, useState } from 'react'
+import { shortName } from '@/lib/utils'
 
-function shortName(name) {
-  const n = String(name || '')
-  return n.length > 11 ? n.slice(0, 11) + '..' : n
+interface AttendanceFormProps {
+  employeeName: string
+  employeeEmail: string
 }
 
-function getLocation() {
+interface CheckState {
+  kind: 'already' | 'ready' | 'success' | 'error'
+  message: string
+}
+
+function getLocation(): Promise<string> {
   return new Promise((resolve) => {
     if (!('geolocation' in navigator)) {
       resolve('N/A')
@@ -36,9 +41,9 @@ function getLocation() {
   })
 }
 
-export default function AttendanceForm({ employeeName, employeeEmail }) {
+export default function AttendanceForm({ employeeName, employeeEmail }: AttendanceFormProps) {
   const [status, setStatus] = useState('Office')
-  const [check, setCheck] = useState(null)
+  const [check, setCheck] = useState<CheckState | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
   useEffect(() => {
@@ -55,9 +60,9 @@ export default function AttendanceForm({ employeeName, employeeEmail }) {
         setCheck(
           data?.attended
             ? {
-              kind: 'already',
-              message: `${employeeName} already attended today (${data.status})`,
-            }
+                kind: 'already',
+                message: `${employeeName} already attended today (${data.status})`,
+              }
             : { kind: 'ready', message: 'Not marked yet — you can submit.' },
         )
       })
@@ -69,7 +74,7 @@ export default function AttendanceForm({ employeeName, employeeEmail }) {
     }
   }, [employeeName, employeeEmail])
 
-  const handleSubmit = async (e) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if ((!employeeName && !employeeEmail) || submitting) return
 

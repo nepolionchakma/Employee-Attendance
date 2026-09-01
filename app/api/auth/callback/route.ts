@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { exchangeCodeForUser, isAllowedEmail } from '@/lib/oauth'
 import { ensureEmployeeTabForUser } from '@/lib/googleSheets'
 import {
@@ -10,9 +10,9 @@ import {
 
 export const runtime = 'nodejs'
 
-export async function GET(request) {
+export async function GET(request: NextRequest) {
   const origin = new URL(request.url).origin
-  const fail = (error) => NextResponse.redirect(new URL(`/login?error=${error}`, origin))
+  const fail = (error: string) => NextResponse.redirect(new URL(`/login?error=${error}`, origin))
 
   const { searchParams } = request.nextUrl
   const code = searchParams.get('code')
@@ -33,12 +33,13 @@ export async function GET(request) {
     }
     const token = await createSessionToken(user)
     response.cookies.set(SESSION_COOKIE, token, sessionCookieOptions())
-    ensureEmployeeTabForUser(user.name, user.email).catch((e) =>
-      console.error('Could not sync employee column after login:', e.message),
+    ensureEmployeeTabForUser(user.name, user.email).catch((e: unknown) =>
+      console.error('Could not sync employee column after login:', e instanceof Error ? e.message : String(e)),
     )
     return response
   } catch (error) {
-    console.error('Google OAuth callback failed:', error.message)
+    const msg = error instanceof Error ? error.message : String(error)
+    console.error('Google OAuth callback failed:', msg)
     return fail('oauth_failed')
   }
 }

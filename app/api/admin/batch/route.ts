@@ -1,9 +1,9 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { getSessionUser } from '@/lib/auth'
 
 export const runtime = 'nodejs'
 
-export async function POST(request) {
+export async function POST(request: NextRequest) {
   const user = await getSessionUser()
   if (!user) return NextResponse.json({ message: 'Not authenticated' }, { status: 401 })
   if (!user.isAdmin) return NextResponse.json({ message: 'Forbidden' }, { status: 403 })
@@ -20,12 +20,12 @@ export async function POST(request) {
 
     // Generic raw batch: { rawUpdates: [{row, col, value}] }
     if (Array.isArray(body?.rawUpdates) && body.rawUpdates.length) {
-      const cells = body.rawUpdates.map((u) => ({
+      const cells = body.rawUpdates.map((u: { row: unknown; col: unknown; value: unknown }) => ({
         row: Number(u.row),
         col: Number(u.col),
         value: String(u.value ?? ''),
       }))
-      if (cells.some((c) => !Number.isInteger(c.row) || !Number.isInteger(c.col) || c.row < 0 || c.col < 0)) {
+      if (cells.some((c: { row: number; col: number }) => !Number.isInteger(c.row) || !Number.isInteger(c.col) || c.row < 0 || c.col < 0)) {
         return NextResponse.json({ message: 'rawUpdates row/col must be non-negative integers' }, { status: 400 })
       }
       await batchUpdateRawCells(tab, cells)
@@ -34,12 +34,12 @@ export async function POST(request) {
 
     // Attendance batch: { attendanceUpdates: [{employeeName, day, status}] }
     if (Array.isArray(body?.attendanceUpdates) && body.attendanceUpdates.length) {
-      const updates = body.attendanceUpdates.map((u) => ({
+      const updates = body.attendanceUpdates.map((u: { employeeName?: string; day?: string; status?: string }) => ({
         employeeName: String(u.employeeName || '').trim(),
         day: String(u.day || '').trim(),
         status: String(u.status ?? '').trim(),
       }))
-      if (updates.some((u) => !u.employeeName || !u.day)) {
+      if (updates.some((u: { employeeName: string; day: string }) => !u.employeeName || !u.day)) {
         return NextResponse.json({ message: 'each attendanceUpdate needs employeeName and day' }, { status: 400 })
       }
       await batchUpdateAttendanceCells(tab, updates)
@@ -48,7 +48,8 @@ export async function POST(request) {
 
     return NextResponse.json({ message: 'Provide rawUpdates or attendanceUpdates' }, { status: 400 })
   } catch (error) {
-    console.error('POST /api/admin/batch failed:', error.message)
-    return NextResponse.json({ message: error.message }, { status: 500 })
+    const msg = error instanceof Error ? error.message : String(error)
+    console.error('POST /api/admin/batch failed:', msg)
+    return NextResponse.json({ message: msg }, { status: 500 })
   }
 }

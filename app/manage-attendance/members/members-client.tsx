@@ -1,15 +1,28 @@
-﻿// @ts-nocheck
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
 
+interface Member {
+  name: string
+  email: string
+  phone: string
+  role: string
+}
+
+interface MemberForm {
+  name: string
+  email: string
+  phone: string
+  role: string
+}
+
 export default function MembersClient() {
-  const [members, setMembers] = useState([])
+  const [members, setMembers] = useState<Member[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
-  const [editing, setEditing] = useState(null) // index or 'new'
-  const [form, setForm] = useState({ name: '', email: '', phone: '', role: 'employee' })
+  const [editing, setEditing] = useState<number | 'new' | null>(null)
+  const [form, setForm] = useState<MemberForm>({ name: '', email: '', phone: '', role: 'employee' })
   const [saving, setSaving] = useState(false)
 
   const fetchMembers = useCallback(async () => {
@@ -21,7 +34,7 @@ export default function MembersClient() {
       if (!res.ok) throw new Error(data.message || 'Failed to load')
       setMembers(data.members || [])
     } catch (e) {
-      setError(e.message)
+      setError(e instanceof Error ? e.message : String(e))
     } finally {
       setLoading(false)
     }
@@ -39,7 +52,7 @@ export default function MembersClient() {
     setSuccess('')
   }
 
-  const startEdit = (idx) => {
+  const startEdit = (idx: number) => {
     const m = members[idx]
     setForm({ name: m.name, email: m.email, phone: m.phone || '', role: m.role || 'employee' })
     setEditing(idx)
@@ -83,13 +96,13 @@ export default function MembersClient() {
       setEditing(null)
       await fetchMembers()
     } catch (e) {
-      setError(e.message)
+      setError(e instanceof Error ? e.message : String(e))
     } finally {
       setSaving(false)
     }
   }
 
-  const handleDelete = async (idx) => {
+  const handleDelete = async (idx: number) => {
     if (!confirm(`Delete ${members[idx]?.email}?`)) return
     setError('')
     setSuccess('')
@@ -100,7 +113,7 @@ export default function MembersClient() {
       setSuccess('Member deleted')
       await fetchMembers()
     } catch (e) {
-      setError(e.message)
+      setError(e instanceof Error ? e.message : String(e))
     }
   }
 

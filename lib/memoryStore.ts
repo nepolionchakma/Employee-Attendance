@@ -1,6 +1,6 @@
 // In-memory storage used when no Google service account file is present.
 // Data resets when the server restarts. Gmail is primary key (per Gmail).
-const store = new Map<string, string>() // key: `${email||name}::${day}` -> `status|time|location`
+const store = new Map<string, string>() // key: `${email||name}::${day}` -> `status\x00time\x00location` (null-byte delimited to avoid collisions with user data)
 
 export async function getAttendanceInMemory(
   employeeName: string,
@@ -17,7 +17,7 @@ export async function getAttendanceInMemory(
   const key = `${String(employeeEmail || employeeName).toLowerCase()}::${day}`
   const raw = store.get(key)
   if (!raw) return { attended: false }
-  const [status, time, location] = raw.split('|')
+  const [status, time, location] = raw.split('\x00')
   return { attended: true, status, time, location }
 }
 
@@ -45,6 +45,6 @@ export async function markAttendanceInMemory(
   const key = `${String(employeeEmail || employeeName).toLowerCase()}::${day}`
   const t = String(time || '').trim() || new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }).format(new Date())
   const loc = String(location || '').trim() || 'N/A'
-  store.set(key, `${status}|${t}|${loc}`)
+  store.set(key, `${status}\x00${t}\x00${loc}`)
   return true
 }

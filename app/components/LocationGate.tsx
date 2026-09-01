@@ -1,4 +1,3 @@
-// @ts-nocheck
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
@@ -38,7 +37,7 @@ export function useLocationPermission() {
           setState('granted')
           resolve(true)
         },
-        (err) => {
+        (err: GeolocationPositionError) => {
           setError(err.message || 'Permission denied')
           setState(err.code === 1 ? 'denied' : 'prompt')
           resolve(false)
@@ -110,11 +109,9 @@ export default function LocationGate({
       ) : (
         <div onClickCapture={handleDisabledClick} style={{ opacity: 0.6 }}>
           <div style={{ pointerEvents: 'none', opacity: 0.6 }}>{children}</div>
-          {state !== 'granted' && (
-            <p style={{ fontSize: 12, color: '#e5484d', textAlign: 'center', marginTop: 8 }}>
-              Location permission required — click to allow
-            </p>
-          )}
+          <p style={{ fontSize: 12, color: '#e5484d', textAlign: 'center', marginTop: 8 }}>
+            Location permission required — click to allow
+          </p>
         </div>
       )}
 

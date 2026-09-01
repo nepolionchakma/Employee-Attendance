@@ -5,6 +5,9 @@ import { isAdminEmail } from './oauth'
 export const SESSION_COOKIE = 'session'
 export const OAUTH_STATE_COOKIE = 'oauth_state'
 
+if (!process.env.SESSION_SECRET && process.env.NODE_ENV === 'production') {
+  throw new Error('SESSION_SECRET is required in production. Set it in your environment variables.')
+}
 const SESSION_SECRET = process.env.SESSION_SECRET || 'insecure-dev-secret-change-me'
 const encodedKey = new TextEncoder().encode(SESSION_SECRET)
 const SESSION_MAX_AGE = 60 * 60 * 24 * 7 // 7 days

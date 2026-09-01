@@ -1,4 +1,4 @@
-// @ts-nocheck
+
 import fs from 'node:fs'
 
 export const SPREADSHEET_ID: string = process.env.SPREADSHEET_ID || ''
@@ -49,39 +49,39 @@ async function sheetsClient() {
     scopes: ['https://www.googleapis.com/auth/spreadsheets'],
   })
   const client = await auth.getClient()
-  return google.sheets({ version: 'v4', auth: client })
+  return google.sheets({ version: 'v4', auth: client } as any)
 }
 
-async function listTabs(sheets) {
+async function listTabs(sheets: any) {
   const res = await sheets.spreadsheets.get({
     spreadsheetId: SPREADSHEET_ID,
     fields: 'sheets.properties.title',
   })
-  return res.data.sheets.map((s) => s.properties.title)
+  return res.data.sheets.map((s: any) => s.properties.title)
 }
 
-async function sheetIdFor(sheets, tab) {
+async function sheetIdFor(sheets: any, tab: string) {
   const res = await sheets.spreadsheets.get({
     spreadsheetId: SPREADSHEET_ID,
     fields: 'sheets.properties.title,sheets.properties.sheetId',
   })
-  return res.data.sheets.find((s) => s.properties.title === tab)?.properties.sheetId
+  return res.data.sheets.find((s: any) => s.properties.title === tab)?.properties.sheetId
 }
 
 /* ---- Employees / Members directory ---- */
 const EMPLOYEES_SHEET = (process.env.EMPLOYEES_SHEET_TAB || 'Employees').trim() || 'Employees'
 const EMPLOYEES_SHEET_CANDIDATES = [EMPLOYEES_SHEET].filter(Boolean)
 
-let employeesCache = null
+let employeesCache: any[] | null = null
 let employeesCacheAt = 0
 const EMPLOYEES_CACHE_TTL = 60 * 1000
 
-function normalizeRole(v) {
+function normalizeRole(v: string) {
   const r = String(v || '').trim().toLowerCase()
   return r === 'admin' ? 'admin' : 'employee'
 }
 
-async function resolveEmployeesSheetName(sheets) {
+async function resolveEmployeesSheetName(sheets: any) {
   return EMPLOYEES_SHEET
 }
 
@@ -229,7 +229,7 @@ export function clearEmployeesCache() {
   employeesCacheAt = 0
 }
 
-export async function addEmployee({ name, email, phone = '', role = 'employee' }) {
+export async function addEmployee({ name, email, phone = '', role = 'employee' }: { name?: string; email: string; phone?: string; role?: string }) {
   if (!email || !email.includes('@')) throw new Error('Valid Gmail is required')
   const sheets = await sheetsClient()
   const tab = await ensureEmployeesSheet()
@@ -244,7 +244,7 @@ export async function addEmployee({ name, email, phone = '', role = 'employee' }
   return true
 }
 
-export async function updateEmployee(rowIndex, { name, email, phone, role }) {
+export async function updateEmployee(rowIndex: number, { name, email, phone, role }: { name: string; email: string; phone: string; role: string }) {
   const sheets = await sheetsClient()
   const tab = await ensureEmployeesSheet()
   const sheetRow = rowIndex + 2
@@ -259,7 +259,7 @@ export async function updateEmployee(rowIndex, { name, email, phone, role }) {
   return true
 }
 
-export async function deleteEmployee(rowIndex) {
+export async function deleteEmployee(rowIndex: number) {
   const sheets = await sheetsClient()
   const tab = await ensureEmployeesSheet()
   const sheetId = await sheetIdFor(sheets, tab)
@@ -276,7 +276,7 @@ export async function deleteEmployee(rowIndex) {
 }
 
 export function nowParts() {
-  const fmt = (opts) =>
+  const fmt = (opts: Intl.DateTimeFormatOptions) =>
     new Intl.DateTimeFormat('en-GB', { timeZone: TZ, ...opts }).format(new Date())
 
   return {
@@ -288,7 +288,7 @@ export function nowParts() {
   }
 }
 
-function monthLabel(year, month) {
+function monthLabel(year: number, month: number) {
   return new Intl.DateTimeFormat('en-US', {
     timeZone: TZ,
     year: 'numeric',
@@ -296,14 +296,14 @@ function monthLabel(year, month) {
   }).format(new Date(Date.UTC(year, month - 1, 1)))
 }
 
-function weekdayShort(year, month, day) {
+function weekdayShort(year: number, month: number, day: number) {
   return new Intl.DateTimeFormat('en-US', {
     timeZone: TZ,
     weekday: 'short',
   }).format(new Date(year, month - 1, day, 12, 0, 0))
 }
 
-function columnLetter(index) {
+function columnLetter(index: number) {
   let letter = ''
   let n = index + 1
   while (n > 0) {
@@ -316,7 +316,7 @@ function columnLetter(index) {
 
 /* ---- 3-column structure detection ---- */
 
-function isNewThreeColStructure(rows, headerRow) {
+function isNewThreeColStructure(rows: any[], headerRow: number) {
   const row = rows[headerRow] || []
   for (let i = 2; i < Math.min(8, row.length); i++) {
     if (String(row[i] || '').trim().toLowerCase() === 'presence') return true
@@ -326,7 +326,7 @@ function isNewThreeColStructure(rows, headerRow) {
 
 /* ---- migrateToThreeCol ---- */
 
-async function migrateToThreeCol(sheets, tab) {
+async function migrateToThreeCol(sheets: any, tab: string) {
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: SPREADSHEET_ID,
     range: tab,
@@ -390,7 +390,7 @@ async function migrateToThreeCol(sheets, tab) {
 
 /* ---- createTab with Timestamp row + Date/Day/Presence/Time/Location headers ---- */
 
-async function createTab(sheets, title, year, month) {
+async function createTab(sheets: any, title: string, year: number, month: number) {
   await sheets.spreadsheets.batchUpdate({
     spreadsheetId: SPREADSHEET_ID,
     requestBody: {
@@ -436,7 +436,7 @@ async function createTab(sheets, title, year, month) {
   return title
 }
 
-async function ensureMonthTab(sheets) {
+async function ensureMonthTab(sheets: any) {
   const tabs = await listTabs(sheets)
   const { year, month } = nowParts()
   const title = SHEET_TAB || monthLabel(year, month)
@@ -444,20 +444,20 @@ async function ensureMonthTab(sheets) {
   return createTab(sheets, title, year, month)
 }
 
-function findHeaderRow(rows) {
+function findHeaderRow(rows: any[]) {
   const idx = rows.findIndex((row) => String(row[0] || '').trim() === 'Date')
   if (idx === -1) throw new Error('No header row with "Date" found in the sheet')
   return idx
 }
 
-function findDayRow(rows, headerRow, day) {
+function findDayRow(rows: any[], headerRow: number, day: any) {
   for (let i = headerRow + 1; i < rows.length; i++) {
     if (String(rows[i][0] || '').trim() === String(day)) return i
   }
   throw new Error(`No row for day ${day} found in the sheet`)
 }
 
-function parseHeaderEmail(header) {
+function parseHeaderEmail(header: string): string | null {
   const h = String(header || '').trim()
   const m = h.match(/<([^>]+@[^>]+)>/)
   if (m) return m[1].trim().toLowerCase()
@@ -465,14 +465,14 @@ function parseHeaderEmail(header) {
   return null
 }
 
-function parseHeaderName(header) {
+function parseHeaderName(header: string): string {
   const h = String(header || '').trim()
   const m = h.match(/^([^<]+)<[^>]+>$/)
   if (m) return m[1].trim()
   return h
 }
 
-function formatEmployeeHeader(name, email) {
+function formatEmployeeHeader(name: string, email: string) {
   const n = String(name || '').trim()
   const e = String(email || '').trim().toLowerCase()
   if (!e) return n
@@ -480,7 +480,7 @@ function formatEmployeeHeader(name, email) {
   return `${n} <${e}>`
 }
 
-function findEmployeeNamesRow(rows, headerRow) {
+function findEmployeeNamesRow(rows: any[], headerRow: number) {
   if (headerRow > 0 && rows[headerRow - 1]) {
     const firstCell = String(rows[headerRow - 1][2] || '').trim()
     if (firstCell.includes('@')) return headerRow - 1
@@ -490,7 +490,7 @@ function findEmployeeNamesRow(rows, headerRow) {
   return headerRow
 }
 
-function findEmployeeColumnByEmail(rows, headerRow, email) {
+function findEmployeeColumnByEmail(rows: any[], headerRow: number, email: string) {
   const namesRow = findEmployeeNamesRow(rows, headerRow)
   const headers = rows[namesRow]
   const target = String(email || '').trim().toLowerCase()
@@ -503,7 +503,7 @@ function findEmployeeColumnByEmail(rows, headerRow, email) {
   return -1
 }
 
-function findEmployeeColumnLegacyByName(rows, headerRow, name) {
+function findEmployeeColumnLegacyByName(rows: any[], headerRow: number, name: string) {
   const namesRow = findEmployeeNamesRow(rows, headerRow)
   const headers = rows[namesRow]
   const target = String(name || '').trim().toLowerCase()
@@ -518,7 +518,7 @@ function findEmployeeColumnLegacyByName(rows, headerRow, name) {
   return -1
 }
 
-function findEmployeeColumn(rows, headerRow, employeeName, employeeEmail) {
+function findEmployeeColumn(rows: any[], headerRow: number, employeeName: string, employeeEmail?: string) {
   const namesRow = findEmployeeNamesRow(rows, headerRow)
   if (employeeEmail) {
     const byEmail = findEmployeeColumnByEmail(rows, headerRow, employeeEmail)
@@ -531,7 +531,7 @@ function findEmployeeColumn(rows, headerRow, employeeName, employeeEmail) {
       const step = isNewThreeColStructure(rows, headerRow) ? COLS_PER_EMPLOYEE : 1
       const target = String(employeeName).trim().toLowerCase()
       const idx = headers.findIndex(
-        (h) => String(h || '').trim().toLowerCase() === target || parseHeaderName(String(h || '').trim()).toLowerCase() === target,
+        (h: any) => String(h || '').trim().toLowerCase() === target || parseHeaderName(String(h || '').trim()).toLowerCase() === target,
       )
       if (idx !== -1) return idx
   }
@@ -546,7 +546,7 @@ function findEmployeeColumn(rows, headerRow, employeeName, employeeEmail) {
  * Ensures employee column exists. For 3-col structure, adds 3 columns at once
  * (Presence/Time/Location) with sub-header row.
  */
-async function ensureEmployeeColumn(sheets, tab, employeeName, employeeEmail) {
+async function ensureEmployeeColumn(sheets: any, tab: string, employeeName: string, employeeEmail?: string) {
   const email = String(employeeEmail || '').trim().toLowerCase()
   const name = String(employeeName || '').trim()
   if (!email && !name) throw new Error('employeeName or employeeEmail required')
@@ -579,7 +579,7 @@ async function ensureEmployeeColumn(sheets, tab, employeeName, employeeEmail) {
   }
 
     if (name) {
-      const existsName = rows[namesRow].some((h) => parseHeaderName(String(h || '').trim()).toLowerCase() === name.toLowerCase())
+      const existsName = rows[namesRow].some((h: any) => parseHeaderName(String(h || '').trim()).toLowerCase() === name.toLowerCase())
       if (existsName && !email) return
     }
 
@@ -618,7 +618,7 @@ async function ensureEmployeeColumn(sheets, tab, employeeName, employeeEmail) {
 }
 
 /** Fills empty cells for past days with "Absent" (and "12:00 AM | N/A" for 3-col) or "Holiday" for Fridays. */
-async function markAbsentForPastDays(sheets, tab, rows) {
+async function markAbsentForPastDays(sheets: any, tab: string, rows: any[]) {
   const { day: today } = nowParts()
   const headerRow = findHeaderRow(rows)
   const namesRow = findEmployeeNamesRow(rows, headerRow)
@@ -633,7 +633,7 @@ async function markAbsentForPastDays(sheets, tab, rows) {
   for (let i = 0; i < rows.length; i++) {
     for (let j = 0; j < rows[i].length; j++) {
       const v = String(rows[i][j] || '').trim()
-      if (v === 'Not Availabale' || v === 'Not Available') {
+      if (v === 'Not Available') {
         rows[i][j] = 'N/A'
       }
     }
@@ -690,7 +690,7 @@ async function markAbsentForPastDays(sheets, tab, rows) {
   console.log(`Marked "Absent" for past days in "${tab}"`)
 }
 
-async function updateAbsentSummary(sheets, tab, rows) {
+async function updateAbsentSummary(sheets: any, tab: string, rows: any[]) {
   const headerRow = findHeaderRow(rows)
   const headers = rows[headerRow]
   const is3col = isNewThreeColStructure(rows, headerRow)
@@ -707,7 +707,7 @@ async function updateAbsentSummary(sheets, tab, rows) {
     for (const c of employeeCols) {
       const v = String(rows[i][c] ?? '').trim().toLowerCase()
       if (v === 'absent') {
-        counts.set(c, counts.get(c) + 1)
+        counts.set(c, (counts.get(c) ?? 0) + 1)
       }
     }
   }
@@ -726,7 +726,7 @@ async function updateAbsentSummary(sheets, tab, rows) {
   const totalCols = rows[headerRow].length
   const absentRow = [ABSENT_SECTION, '']
   for (let c = 2; c < totalCols; c++) {
-    absentRow.push(counts.has(c) ? counts.get(c) : '')
+    absentRow.push(counts.has(c) ? String(counts.get(c) ?? 0) : '')
   }
 
   const totalRow = ['Total', total]
@@ -747,7 +747,7 @@ async function updateAbsentSummary(sheets, tab, rows) {
   ])
 }
 
-async function boldCells(sheets, tab, cells) {
+async function boldCells(sheets: any, tab: string, cells: { row: number; col: number }[]) {
   const sheetId = await sheetIdFor(sheets, tab)
   if (sheetId == null) return
   const requests = cells.map(({ row, col }) => ({
@@ -778,7 +778,7 @@ const EMP_COLORS = [
 const PINK_COLOR = { red: 0.918, green: 0.82, blue: 0.863 }
 const SOLID_MEDIUM = { style: 'SOLID_MEDIUM' }
 
-async function applyEmployeeFormatting(sheets, tab) {
+async function applyEmployeeFormatting(sheets: any, tab: string) {
   const sheetId = await sheetIdFor(sheets, tab)
   if (sheetId == null) return
 
@@ -802,7 +802,7 @@ async function applyEmployeeFormatting(sheets, tab) {
 
   const requests = []
 
-  function bgCells(row, colStart, colEnd, color) {
+  function bgCells(row: number, colStart: number, colEnd: number, color: { red: number; green: number; blue: number }) {
     const vals = []
     for (let c = colStart; c < colEnd; c++) {
       vals.push({ userEnteredFormat: { backgroundColorStyle: { rgbColor: color } } })
@@ -816,14 +816,14 @@ async function applyEmployeeFormatting(sheets, tab) {
     }
   }
 
-  function bdrCell(row, col, sides) {
-    const req = { updateBorders: { range: { sheetId, startRowIndex: row, endRowIndex: row + 1, startColumnIndex: col, endColumnIndex: col + 1 } } }
+  function bdrCell(row: number, col: number, sides: string[]) {
+    const req: any = { updateBorders: { range: { sheetId, startRowIndex: row, endRowIndex: row + 1, startColumnIndex: col, endColumnIndex: col + 1 } } }
     for (const s of sides) req.updateBorders[s] = SOLID_MEDIUM
     return req
   }
 
-  function bdrRange(r1, r2, c1, c2, sides) {
-    const req = { updateBorders: { range: { sheetId, startRowIndex: r1, endRowIndex: r2, startColumnIndex: c1, endColumnIndex: c2 } } }
+  function bdrRange(r1: number, r2: number, c1: number, c2: number, sides: string[]) {
+    const req: any = { updateBorders: { range: { sheetId, startRowIndex: r1, endRowIndex: r2, startColumnIndex: c1, endColumnIndex: c2 } } }
     for (const s of sides) req.updateBorders[s] = SOLID_MEDIUM
     return req
   }
@@ -876,7 +876,7 @@ async function applyEmployeeFormatting(sheets, tab) {
   console.log(`Applied formatting to "${tab}" (${numEmps} employees)`)
 }
 
-async function loadGrid(sheets, tab) {
+async function loadGrid(sheets: any, tab: string) {
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: SPREADSHEET_ID,
     range: tab,
@@ -891,7 +891,7 @@ async function loadGrid(sheets, tab) {
 /**
  * Returns { attended, status, time?, location? } for an employee on a given day.
  */
-export async function getAttendance(employeeName, employeeEmail, day) {
+export async function getAttendance(employeeName: string, employeeEmail?: string, day?: number | string) {
   if (day === undefined) {
     const maybeDay = employeeEmail
     const isDay = typeof maybeDay === 'number' || (typeof maybeDay === 'string' && /^\d+$/.test(String(maybeDay).trim()))
@@ -924,7 +924,7 @@ export async function getAttendance(employeeName, employeeEmail, day) {
  * For 3-col: writes [status, time, location].
  * For legacy 1-col: writes [status].
  */
-export async function markAttendance(employeeName, employeeEmail, day, status, time, location) {
+export async function markAttendance(employeeName: string, employeeEmail?: string, day?: number | string, status?: string, time?: string, location?: string) {
   if (status === undefined) {
     const maybeDay = employeeEmail
     const maybeStatus = day
@@ -966,7 +966,7 @@ export async function markAttendance(employeeName, employeeEmail, day, status, t
       valueInputOption: 'USER_ENTERED',
       requestBody: { values: [[status, t, loc]] },
     })
-    return written.data.updatedCells > 0
+    return (written.data.updatedCells ?? 0) > 0
   }
 
   const range = `${tab}!${columnLetter(colIdx)}${rowIdx + 1}`
@@ -976,7 +976,7 @@ export async function markAttendance(employeeName, employeeEmail, day, status, t
     valueInputOption: 'USER_ENTERED',
     requestBody: { values: [[status]] },
   })
-  return written.data.updatedCells > 0
+  return (written.data.updatedCells ?? 0) > 0
 }
 
 export { parseHeaderEmail, parseHeaderName, formatEmployeeHeader }
@@ -986,7 +986,7 @@ export async function listMonthTabs() {
   return listTabs(sheets)
 }
 
-export async function getRawSheet(tab) {
+export async function getRawSheet(tab: string) {
   const sheets = await sheetsClient()
   let title = (tab || '').trim()
   if (!title) title = await ensureMonthTab(sheets)
@@ -1002,7 +1002,7 @@ export async function getRawSheet(tab) {
   return { tab: title, values: res.data.values || [] }
 }
 
-export async function updateRawCell(tab, row, col, value) {
+export async function updateRawCell(tab: string, row: number, col: number, value: string) {
   const sheets = await sheetsClient()
   const title = (tab || '').trim() || (await ensureMonthTab(sheets))
   const tabs = await listTabs(sheets)
@@ -1017,7 +1017,7 @@ export async function updateRawCell(tab, row, col, value) {
   return true
 }
 
-export async function batchUpdateRawCells(tab, cells) {
+export async function batchUpdateRawCells(tab: string, cells: { row: number; col: number; value: string }[]) {
   if (!cells?.length) return true
   const sheets = await sheetsClient()
   const title = (tab || '').trim() || (await ensureMonthTab(sheets))
@@ -1034,7 +1034,7 @@ export async function batchUpdateRawCells(tab, cells) {
   return true
 }
 
-export async function batchUpdateAttendanceCells(tab, updates) {
+export async function batchUpdateAttendanceCells(tab: string, updates: { employeeName?: string; employeeEmail?: string; name?: string; email?: string; day: string; status: string; time?: string; location?: string }[]) {
   if (!updates?.length) return true
   const sheets = await sheetsClient()
   const title = (tab || '').trim() || (await ensureMonthTab(sheets))
@@ -1095,7 +1095,7 @@ export async function batchUpdateAttendanceCells(tab, updates) {
  * Returns the full grid for a tab (for admin).
  * For 3-col: reads Presence, Time, Location per employee.
  */
-export async function getAdminGrid(tab) {
+export async function getAdminGrid(tab: string) {
   const sheets = await sheetsClient()
   let title = (tab || '').trim()
   if (!title) title = await ensureMonthTab(sheets)
@@ -1120,7 +1120,7 @@ export async function getAdminGrid(tab) {
     if (raw === ABSENT_SECTION || raw.toLowerCase() === 'total') break
     const d = Number(raw)
     if (!Number.isInteger(d)) continue
-    const values = {}
+    const values: Record<string, string> = {}
     for (const emp of employees) {
       const c = findEmployeeColumn(rows, headerRow, emp)
       if (is3col) {
@@ -1131,7 +1131,7 @@ export async function getAdminGrid(tab) {
     }
     days.push({ date: raw, day: String(rows[i][1] ?? '').trim(), values })
   }
-  let absentDays = {}
+  let absentDays: Record<string, number> = {}
   let total = 0
   for (let i = headerRow + 1; i < rows.length; i++) {
     if (String(rows[i][0] ?? '').trim() === ABSENT_SECTION) {
@@ -1149,7 +1149,7 @@ export async function getAdminGrid(tab) {
   return { tab: title, headers, employees, days, absentDays, total }
 }
 
-export async function adminUpdateCell(tab, employeeName, dayLabel, status, employeeEmail) {
+export async function adminUpdateCell(tab: string, employeeName: string, dayLabel: string, status: string, employeeEmail?: string) {
   const sheets = await sheetsClient()
   const title = (tab || '').trim() || (await ensureMonthTab(sheets))
   const tabs = await listTabs(sheets)
@@ -1208,7 +1208,7 @@ export async function backfillCurrentTab() {
   await loadGrid(sheets, tab)
 }
 
-export async function ensureEmployeeTabForUser(employeeName, employeeEmail) {
+export async function ensureEmployeeTabForUser(employeeName: string, employeeEmail: string) {
   if (!hasGoogleCredentials() || !SPREADSHEET_ID) return
   const sheets = await sheetsClient()
   const tab = await ensureMonthTab(sheets)

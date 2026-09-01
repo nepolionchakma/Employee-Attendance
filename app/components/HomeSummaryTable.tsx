@@ -1,14 +1,24 @@
-// @ts-nocheck
 'use client'
 
 import { useState, useMemo } from 'react'
+import { shortName } from '@/lib/utils'
 
-function shortName(name) {
-  const n = String(name || '')
-  return n.length > 11 ? n.slice(0, 11) + '..' : n
+interface StatRow {
+  employee: string
+  name: string
+  email: string
+  present: number
+  absent: number
+  total: number
+  hasColumn: boolean
 }
 
-export default function HomeSummaryTable({ stats, user }) {
+interface HomeSummaryUser {
+  name: string
+  email: string
+}
+
+export default function HomeSummaryTable({ stats, user }: { stats: StatRow[]; user: HomeSummaryUser }) {
   const [page, setPage] = useState(1)
   const perPage = 10
   const totalPages = Math.max(1, Math.ceil(stats.length / perPage))
@@ -44,14 +54,6 @@ export default function HomeSummaryTable({ stats, user }) {
                   <td className="home-employee-cell" title={row.email}>
                     <span title={needsTitle ? row.name : undefined}>{row.name}</span>
                     {!row.hasColumn && <span style={{ display: 'inline-block', fontSize: 10, color: '#e67e22', marginLeft: 10 }}>(no column found)</span>}
-                    {/* {row.email && (
-                      <span
-                        title={row.email}
-                        style={{ display: 'block', fontSize: 11, color: 'var(--text)', fontWeight: 400, cursor: 'default' }}
-                      >
-                        {row.email}
-                      </span>
-                    )} */}
                     {isOwn && <span className="home-you-badge">You</span>}
 
                   </td>

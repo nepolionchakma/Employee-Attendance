@@ -1,8 +1,14 @@
-// @ts-nocheck
 'use client'
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import { shortName } from '@/lib/utils'
+
+interface NavbarUser {
+  name: string
+  email: string
+  isAdmin: boolean
+}
 
 function HomeIcon() {
   return (
@@ -31,12 +37,7 @@ function LogoutIcon() {
   )
 }
 
-function shortName(name) {
-  const n = String(name || '')
-  return n.length > 11 ? n.slice(0, 11) + '..' : n
-}
-
-export default function Navbar({ user }) {
+export default function Navbar({ user }: { user: NavbarUser }) {
   const pathname = usePathname()
   const isHome = pathname === '/'
   const isAdminPage = pathname?.startsWith('/manage-attendance') || pathname?.startsWith('/admin')

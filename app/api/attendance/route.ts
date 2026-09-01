@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { getAttendanceStatus, markAttendanceStatus } from '@/lib/storage'
 import { nowParts } from '@/lib/googleSheets'
 import { getSessionUser } from '@/lib/auth'
@@ -7,7 +7,7 @@ export const runtime = 'nodejs'
 
 const VALID_STATUSES = ['Office', 'Home']
 
-export async function POST(request) {
+export async function POST(request: NextRequest) {
   const user = await getSessionUser()
   if (!user) {
     return NextResponse.json({ message: 'Not authenticated' }, { status: 401 })
@@ -36,19 +36,19 @@ export async function POST(request) {
   try {
     const { date, day } = nowParts()
 
-    const existing = await getAttendanceStatus(employeeName, employeeEmail, day)
+    const existing = await getAttendanceStatus({ employeeName, employeeEmail, day })
     if (existing.attended) {
       return NextResponse.json(
         {
           attended: true,
           status: existing.status,
-          message: `${employeeName || employeeEmail} already attended today (${existing.status})`,
+          message: `${employeeName || employeeEmail} already attended today (${existing.status ?? 'marked'})`,
         },
         { status: 409 },
       )
     }
 
-    await markAttendanceStatus(employeeName, employeeEmail, day, status, time, location)
+    await markAttendanceStatus({ employeeName, employeeEmail, day, status, time, location })
     return NextResponse.json({
       attended: false,
       employee: employeeName,
@@ -60,9 +60,10 @@ export async function POST(request) {
       message: `${employeeName || employeeEmail} marked as ${status} for today (${date})`,
     })
   } catch (error) {
-    console.error('POST /api/attendance failed:', error.message)
+    const msg = error instanceof Error ? error.message : String(error)
+    console.error('POST /api/attendance failed:', msg)
     return NextResponse.json(
-      { message: 'Could not mark attendance. ' + error.message },
+      { message: 'Could not mark attendance. ' + msg },
       { status: 500 },
     )
   }

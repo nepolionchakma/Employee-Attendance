@@ -1,9 +1,9 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { getSessionUser } from '@/lib/auth'
 
 export const runtime = 'nodejs'
 
-export async function GET(request) {
+export async function GET(request: NextRequest) {
   const user = await getSessionUser()
   if (!user) return NextResponse.json({ message: 'Not authenticated' }, { status: 401 })
   if (!user.isAdmin) return NextResponse.json({ message: 'Forbidden' }, { status: 403 })
@@ -20,8 +20,8 @@ export async function GET(request) {
     try {
       const grid = await getAdminGrid(tab)
       return NextResponse.json({ tabs, kind: 'attendance', ...grid })
-    } catch (e) {
-      const msg = String(e?.message || '')
+    } catch (e: unknown) {
+      const msg = String((e as Error)?.message || '')
       const isStructureError =
         msg.includes('No header row with "Date"') || msg.includes('not found in the sheet headers')
       if (!isStructureError) throw e
@@ -29,7 +29,8 @@ export async function GET(request) {
       return NextResponse.json({ tabs, kind: 'raw', tab: raw.tab, values: raw.values })
     }
   } catch (error) {
-    console.error('GET /api/admin/data failed:', error.message)
-    return NextResponse.json({ message: error.message }, { status: 500 })
+    const msg = error instanceof Error ? error.message : String(error)
+    console.error('GET /api/admin/data failed:', msg)
+    return NextResponse.json({ message: msg }, { status: 500 })
   }
 }

@@ -1,21 +1,41 @@
-// @ts-nocheck
 'use client'
 
 import { useEffect, useState, useCallback, useMemo } from 'react'
+import { shortName } from '@/lib/utils'
 
 const STATUS_OPTIONS = ['', 'Office', 'Home', 'Absent']
 
-function statusClass(s) {
+interface AttendanceGrid {
+  kind: 'attendance'
+  tab: string
+  tabs: string[]
+  employees: string[]
+  days: { date: string; day: string; values: Record<string, string> }[]
+  absentDays: Record<string, number>
+  total: number
+}
+
+interface RawGrid {
+  kind: 'raw'
+  tab: string
+  tabs: string[]
+  values: string[][]
+}
+
+type GridData = AttendanceGrid | RawGrid | null
+
+interface AdminClientUser {
+  name: string
+  email: string
+  isAdmin: boolean
+}
+
+function statusClass(s: string) {
   const v = String(s || '').trim()
   if (v === 'Office') return 'admin-cell-office'
   if (v === 'Home') return 'admin-cell-home'
   if (v === 'Absent') return 'admin-cell-absent'
   return 'admin-cell-empty'
-}
-
-function shortName(name) {
-  const n = String(name || '')
-  return n.length > 11 ? n.slice(0, 11) + '..' : n
 }
 
 function RefreshIcon() {
@@ -53,19 +73,19 @@ function SheetIcon() {
   )
 }
 
-export default function AdminClient({ user }) {
+export default function AdminClient({ user }: { user: AdminClientUser }) {
   const [tab, setTab] = useState('')
-  const [tabs, setTabs] = useState([])
-  const [grid, setGrid] = useState(null)
+  const [tabs, setTabs] = useState<string[]>([])
+  const [grid, setGrid] = useState<GridData>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
   const [success, setSuccess] = useState('')
 
   // pending edits: attendance -> { "emp::date": { employeeName, day, status } }
-  const [pendingAttendance, setPendingAttendance] = useState({})
+  const [pendingAttendance, setPendingAttendance] = useState<Record<string, { employeeName: string; day: string; status: string }>>({})
   // raw -> { "row::col": { row, col, value } }
-  const [pendingRaw, setPendingRaw] = useState({})
+  const [pendingRaw, setPendingRaw] = useState<Record<string, { row: number; col: number; value: string }>>({})
 
   const pendingAttendanceCount = useMemo(() => Object.keys(pendingAttendance).length, [pendingAttendance])
   const pendingRawCount = useMemo(() => Object.keys(pendingRaw).length, [pendingRaw])
@@ -76,7 +96,7 @@ export default function AdminClient({ user }) {
     setPendingRaw({})
   }, [])
 
-  const fetchData = useCallback(async (tabName) => {
+  const fetchData = useCallback(async (tabName: string) => {
     setLoading(true)
     setError('')
     setSuccess('')
@@ -90,7 +110,7 @@ export default function AdminClient({ user }) {
       if (!tabName) setTab(data.tab)
       clearPending()
     } catch (e) {
-      setError(e.message)
+      setError(e instanceof Error ? e.message : String(e))
     } finally {
       setLoading(false)
     }
@@ -101,12 +121,12 @@ export default function AdminClient({ user }) {
     void fetchData('')
   }, [fetchData])
 
-  const handleTabChange = (t) => {
+  const handleTabChange = (t: string) => {
     setTab(t)
     fetchData(t)
   }
 
-  const handleAttendanceEdit = (employeeName, date, nextStatus) => {
+  const handleAttendanceEdit = (employeeName: string, date: string, nextStatus: string) => {
     setSuccess('')
     setError('')
     setGrid((prev) => {
@@ -120,16 +140,15 @@ export default function AdminClient({ user }) {
     setPendingAttendance((prev) => ({ ...prev, [key]: { employeeName, day: date, status: nextStatus } }))
   }
 
-  const handleRawEdit = (row, col, value) => {
+  const handleRawEdit = (row: number, col: number, value: string) => {
     setSuccess('')
     setError('')
     setGrid((prev) => {
       if (!prev || prev.kind !== 'raw') return prev
       const nextValues = prev.values.map((r) => [...(r || [])])
       while (nextValues.length <= row) nextValues.push([])
-      while ((nextValues[row] || []).length <= col) nextValues[row].push('')
-      nextValues[row][col] = value
-      // ensure maxCols consistency for display, but keep as is
+      while ((nextValues[row] || []).length <= col) nextValues[row]!.push('')
+      nextValues[row]![col] = value
       return { ...prev, values: nextValues }
     })
     const key = `${row}::${col}`
@@ -166,7 +185,7 @@ export default function AdminClient({ user }) {
       clearPending()
       await fetchData(tab)
     } catch (e) {
-      setError(e.message)
+      setError(e instanceof Error ? e.message : String(e))
     } finally {
       setSaving(false)
     }
