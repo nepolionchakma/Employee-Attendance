@@ -11,7 +11,7 @@ function shortName(name) {
 function getLocation() {
   return new Promise((resolve) => {
     if (!('geolocation' in navigator)) {
-      resolve('Not Available')
+      resolve('N/A')
       return
     }
     navigator.geolocation.getCurrentPosition(
@@ -27,10 +27,10 @@ function getLocation() {
           const district = addr.state_district || ''
           resolve([road, district].filter(Boolean).join(', ') || `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`)
         } catch {
-          resolve('Not Available')
+          resolve('N/A')
         }
       },
-      () => resolve('Not Available'),
+      () => resolve('N/A'),
       { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 },
     )
   })

@@ -368,7 +368,7 @@ async function migrateToThreeCol(sheets, tab) {
     for (let i = 2; i < headers.length; i++) {
       const v = String(row[i] || '').trim()
       if (v.toLowerCase() === 'absent') {
-        newRow.push('Absent', '12:00 AM', 'Not Available')
+        newRow.push('Absent', '12:00 AM', 'N/A')
       } else if (v) {
         newRow.push(v, '', '')
       } else {
@@ -429,6 +429,8 @@ async function createTab(sheets, title, year, month) {
     { row: totalRow - 1, col: 0 },
     { row: totalRow, col: 0 },
   ])
+
+  await applyEmployeeFormatting(sheets, title)
 
   console.log(`Created attendance tab "${title}" (${daysInMonth} days, 3-col with Timestamp row)`)
   return title
@@ -601,6 +603,7 @@ async function ensureEmployeeColumn(sheets, tab, employeeName, employeeEmail) {
         requestBody: { values: [['Presence', 'Time', 'Location']] },
       })
     }
+    await applyEmployeeFormatting(sheets, tab)
     console.log(`Added employee 3-col "${newHeader}" to "${tab}" at col ${startCol}`)
   } else {
     const range = `${tab}!${columnLetter(rows[namesRow].length)}${namesRow}`
@@ -614,7 +617,7 @@ async function ensureEmployeeColumn(sheets, tab, employeeName, employeeEmail) {
   }
 }
 
-/** Fills empty cells for past days with "Absent" (and "12:00 AM | Not Available" for 3-col). */
+/** Fills empty cells for past days with "Absent" (and "12:00 AM | N/A" for 3-col) or "Holiday" for Fridays. */
 async function markAbsentForPastDays(sheets, tab, rows) {
   const { day: today } = nowParts()
   const headerRow = findHeaderRow(rows)
@@ -629,8 +632,9 @@ async function markAbsentForPastDays(sheets, tab, rows) {
 
   for (let i = 0; i < rows.length; i++) {
     for (let j = 0; j < rows[i].length; j++) {
-      if (String(rows[i][j] || '').trim() === 'Not Availabale') {
-        rows[i][j] = 'Not Available'
+      const v = String(rows[i][j] || '').trim()
+      if (v === 'Not Availabale' || v === 'Not Available') {
+        rows[i][j] = 'N/A'
       }
     }
   }
@@ -639,15 +643,23 @@ async function markAbsentForPastDays(sheets, tab, rows) {
     const day = Number(rows[i][0])
     if (!Number.isInteger(day)) break
     if (day >= today) continue
+    const dayName = String(rows[i][1] || '').trim()
+    const isFriday = dayName === 'Fri'
     for (let c = firstEmployeeCol; c < lastEmployeeCol; c++) {
       if (String(rows[i][c] ?? '').trim() === '') {
         if (is3col) {
-          rows[i][c] = 'Absent'
-          rows[i][c + 1] = '12:00 AM'
-          rows[i][c + 2] = 'Not Available'
+          if (isFriday) {
+            rows[i][c] = 'Holiday'
+            rows[i][c + 1] = ''
+            rows[i][c + 2] = ''
+          } else {
+            rows[i][c] = 'Absent'
+            rows[i][c + 1] = '12:00 AM'
+            rows[i][c + 2] = 'N/A'
+          }
           c += 2
         } else {
-          rows[i][c] = 'Absent'
+          rows[i][c] = isFriday ? 'Holiday' : 'Absent'
         }
       }
     }
@@ -757,6 +769,113 @@ async function boldCells(sheets, tab, cells) {
   })
 }
 
+const EMP_COLORS = [
+  { red: 1, green: 0.949, blue: 0.8 },
+  { red: 0.988, green: 0.898, blue: 0.804 },
+  { red: 0.851, green: 0.918, blue: 0.827 },
+  { red: 0.816, green: 0.878, blue: 0.89 },
+]
+const PINK_COLOR = { red: 0.918, green: 0.82, blue: 0.863 }
+const SOLID_MEDIUM = { style: 'SOLID_MEDIUM' }
+
+async function applyEmployeeFormatting(sheets, tab) {
+  const sheetId = await sheetIdFor(sheets, tab)
+  if (sheetId == null) return
+
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: SPREADSHEET_ID,
+    range: tab,
+    valueRenderOption: 'FORMATTED_VALUE',
+  })
+  const rows = res.data.values || []
+  const headerRow = findHeaderRow(rows)
+  const numEmps = Math.max(0, Math.floor((rows[headerRow].length - 2) / COLS_PER_EMPLOYEE))
+  if (numEmps === 0) return
+
+  let lastDayRow = headerRow
+  for (let i = headerRow + 1; i < rows.length; i++) {
+    const d = Number(rows[i][0])
+    if (!Number.isInteger(d)) break
+    lastDayRow = i
+  }
+  const absentRowIdx = lastDayRow + 1
+
+  const requests = []
+
+  function bgCells(row, colStart, colEnd, color) {
+    const vals = []
+    for (let c = colStart; c < colEnd; c++) {
+      vals.push({ userEnteredFormat: { backgroundColorStyle: { rgbColor: color } } })
+    }
+    return {
+      updateCells: {
+        range: { sheetId, startRowIndex: row, endRowIndex: row + 1, startColumnIndex: colStart, endColumnIndex: colEnd },
+        rows: [{ values: vals }],
+        fields: 'userEnteredFormat.backgroundColorStyle',
+      },
+    }
+  }
+
+  function bdrCell(row, col, sides) {
+    const req = { updateBorders: { range: { sheetId, startRowIndex: row, endRowIndex: row + 1, startColumnIndex: col, endColumnIndex: col + 1 } } }
+    for (const s of sides) req.updateBorders[s] = SOLID_MEDIUM
+    return req
+  }
+
+  function bdrRange(r1, r2, c1, c2, sides) {
+    const req = { updateBorders: { range: { sheetId, startRowIndex: r1, endRowIndex: r2, startColumnIndex: c1, endColumnIndex: c2 } } }
+    for (const s of sides) req.updateBorders[s] = SOLID_MEDIUM
+    return req
+  }
+
+  requests.push(bgCells(0, 0, 2, PINK_COLOR))
+  requests.push(bgCells(1, 0, 2, PINK_COLOR))
+
+  for (let i = 0; i < numEmps; i++) {
+    const sc = 2 + i * COLS_PER_EMPLOYEE
+    const ec = sc + COLS_PER_EMPLOYEE
+    const color = EMP_COLORS[i % EMP_COLORS.length]
+
+    requests.push(bgCells(0, sc, ec, color))
+    requests.push(bgCells(1, sc, ec, color))
+
+    const tsSides = ['top', 'right']
+    if (i === 0) tsSides.push('left')
+    requests.push(bdrCell(0, sc, tsSides))
+
+    requests.push(bdrCell(1, ec - 1, ['right']))
+    if (i === 0) requests.push(bdrCell(1, sc, ['left']))
+  }
+
+  for (let r = headerRow + 1; r <= lastDayRow; r++) {
+    const dayName = String(rows[r][1] || '').trim()
+    if (dayName === 'Fri') {
+      requests.push(bdrCell(r, 2, ['left', 'right']))
+    } else {
+      for (let i = 0; i < numEmps; i++) {
+        requests.push(bdrCell(r, 4 + i * COLS_PER_EMPLOYEE, ['right']))
+      }
+    }
+  }
+
+  for (let ci = 2; ci < 2 + numEmps * COLS_PER_EMPLOYEE; ci++) {
+    requests.push(bdrCell(lastDayRow, ci, ['bottom']))
+  }
+
+  for (let i = 0; i < numEmps; i++) {
+    const col = 2 + i * COLS_PER_EMPLOYEE
+    requests.push(bdrRange(absentRowIdx, absentRowIdx + 1, col, col + 1, ['top', 'bottom', 'left', 'right']))
+  }
+
+  if (requests.length > 0) {
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId: SPREADSHEET_ID,
+      requestBody: { requests },
+    })
+  }
+  console.log(`Applied formatting to "${tab}" (${numEmps} employees)`)
+}
+
 async function loadGrid(sheets, tab) {
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: SPREADSHEET_ID,
@@ -837,7 +956,7 @@ export async function markAttendance(employeeName, employeeEmail, day, status, t
   const colIdx = findEmployeeColumn(rows, headerRow, employeeName, employeeEmail)
 
   const t = String(time || '').trim() || new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: TZ }).format(new Date())
-  const loc = String(location || '').trim() || 'Not Available'
+  const loc = String(location || '').trim() || 'N/A'
 
   if (isNew) {
     const range = `${tab}!${columnLetter(colIdx)}${rowIdx + 1}:${columnLetter(colIdx + 2)}${rowIdx + 1}`
@@ -1060,7 +1179,7 @@ export async function adminUpdateCell(tab, employeeName, dayLabel, status, emplo
       spreadsheetId: SPREADSHEET_ID,
       range,
       valueInputOption: 'USER_ENTERED',
-      requestBody: { values: [[normalized, t, 'Not Available']] },
+      requestBody: { values: [[normalized, t, 'N/A']] },
     })
   } else {
     const range = `${title}!${columnLetter(colIdx)}${rowIdx + 1}`
