@@ -147,7 +147,7 @@ export default function AttendanceForm({ employeeName, employeeEmail }: Attendan
           <button
             type="submit"
             className="btn primary"
-            disabled={(!employeeName && !employeeEmail) || submitting}
+            disabled={(!employeeName && !employeeEmail) || submitting || check?.kind === 'already'}
           >
             {submitting ? 'Submitting…' : 'Submit attendance'}
           </button>
