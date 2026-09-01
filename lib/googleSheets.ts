@@ -857,21 +857,22 @@ async function applyEmployeeFormatting(sheets: any, tab: string) {
     if (dayName === 'Fri') {
       const totalCols = 2 + numEmps * COLS_PER_EMPLOYEE
       requests.push(bgCells(r, 0, totalCols, FRIDAY_COLOR))
-      requests.push(bdrCell(r, 2, ['left', 'right']))
-    } else {
-      for (let i = 0; i < numEmps; i++) {
-        requests.push(bdrCell(r, 4 + i * COLS_PER_EMPLOYEE, ['right']))
-      }
+    }
+    for (let i = 0; i < numEmps; i++) {
+      const sc = 2 + i * COLS_PER_EMPLOYEE
+      const ec = sc + COLS_PER_EMPLOYEE
+      requests.push(bdrCell(r, sc, ['left']))
+      requests.push(bdrCell(r, ec - 1, ['right']))
     }
   }
 
-  for (let ci = 2; ci < 2 + numEmps * COLS_PER_EMPLOYEE; ci++) {
-    requests.push(bdrCell(lastDayRow, ci, ['bottom']))
-  }
-
   for (let i = 0; i < numEmps; i++) {
-    const col = 2 + i * COLS_PER_EMPLOYEE
-    requests.push(bdrRange(absentRowIdx, absentRowIdx + 1, col, col + 1, ['top', 'bottom', 'left', 'right']))
+    const sc = 2 + i * COLS_PER_EMPLOYEE
+    const ec = sc + COLS_PER_EMPLOYEE
+    for (let c = sc; c < ec; c++) {
+      requests.push(bdrCell(lastDayRow, c, ['bottom']))
+    }
+    requests.push(bdrRange(absentRowIdx, absentRowIdx + 1, sc, ec, ['top', 'bottom', 'left', 'right']))
   }
 
   if (requests.length > 0) {
