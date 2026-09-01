@@ -394,7 +394,7 @@ async function createTab(sheets: any, title: string, year: number, month: number
   await sheets.spreadsheets.batchUpdate({
     spreadsheetId: SPREADSHEET_ID,
     requestBody: {
-      requests: [{ addSheet: { properties: { title } } }],
+      requests: [{ addSheet: { properties: { title, gridProperties: { columnCount: 50 } } } }],
     },
   })
 
@@ -602,6 +602,20 @@ async function ensureEmployeeColumn(sheets: any, tab: string, employeeName: stri
 
   if (isNew) {
     const startCol = Math.max(rows[namesRow].length, rows[headerRow].length, 2)
+    // Expand sheet columns if needed (default is 26 = A-Z)
+    const neededCols = startCol + COLS_PER_EMPLOYEE + 2
+    const sheetMeta = await sheets.spreadsheets.get({ spreadsheetId: SPREADSHEET_ID })
+    const sheetProps = sheetMeta.data.sheets?.find((s: any) => s.properties?.title === tab)
+    const currentCols = sheetProps?.properties?.gridProperties?.columnCount || 26
+    if (neededCols > currentCols) {
+      await sheets.spreadsheets.batchUpdate({
+        spreadsheetId: SPREADSHEET_ID,
+        requestBody: {
+          requests: [{ updateSheetProperties: { properties: { sheetId: sheetProps?.properties?.sheetId, gridProperties: { columnCount: neededCols } }, fields: 'gridProperties.columnCount' } }],
+        },
+      })
+      console.log(`Expanded "${tab}" from ${currentCols} to ${neededCols} columns`)
+    }
     await sheets.spreadsheets.values.update({
       spreadsheetId: SPREADSHEET_ID,
       range: `${tab}!${columnLetter(startCol)}${namesRow + 1}`,
@@ -853,10 +867,22 @@ async function applyEmployeeFormatting(sheets: any, tab: string) {
     const tsSides = ['top', 'right']
     if (i === 0) tsSides.push('left')
     requests.push(bdrCell(0, sc, tsSides))
+    // Add right border on the last employee column of row 0 (names row)
+    if (i === numEmps - 1) requests.push(bdrCell(0, ec - 1, ['right']))
 
     requests.push(bdrCell(1, ec - 1, ['right']))
     if (i === 0) requests.push(bdrCell(1, sc, ['left']))
   }
+
+  // Bold all employee sub-header cells in row 1 (Date/Day/Presence/Time/Location)
+  const boldRow1: { row: number; col: number }[] = [{ row: 1, col: 0 }, { row: 1, col: 1 }]
+  for (let i = 0; i < numEmps; i++) {
+    const sc = 2 + i * COLS_PER_EMPLOYEE
+    for (let c = sc; c < sc + COLS_PER_EMPLOYEE; c++) {
+      boldRow1.push({ row: 1, col: c })
+    }
+  }
+  await boldCells(sheets, tab, boldRow1)
 
   for (let r = headerRow + 1; r <= lastDayRow; r++) {
     const dayName = String(rows[r][1] || '').trim()
