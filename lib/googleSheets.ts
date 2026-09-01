@@ -401,7 +401,7 @@ async function createTab(sheets: any, title: string, year: number, month: number
   const daysInMonth = new Date(year, month, 0).getDate()
   const totalRow = daysInMonth + 3
 
-  const dateDayRow = ['Date', 'Day', 'Presence', 'Time', 'Location']
+  const dateDayRow = ['Date', 'Day']
   const timestampRow = Array(dateDayRow.length).fill('')
   timestampRow[0] = 'Timestamp'
   const values = [
@@ -482,8 +482,11 @@ function formatEmployeeHeader(name: string, email: string) {
 
 function findEmployeeNamesRow(rows: any[], headerRow: number) {
   if (headerRow > 0 && rows[headerRow - 1]) {
-    const firstCell = String(rows[headerRow - 1][2] || '').trim()
+    const rowAbove = rows[headerRow - 1]
+    const firstCell = String(rowAbove[2] || '').trim()
     if (firstCell.includes('@')) return headerRow - 1
+    const rowAboveFirst = String(rowAbove[0] || '').trim().toLowerCase()
+    if (rowAboveFirst === 'timestamp') return headerRow - 1
     const header = rows[headerRow] || []
     if (String(header[2] || '').trim().toLowerCase() === 'presence') return headerRow - 1
   }
@@ -566,7 +569,7 @@ async function ensureEmployeeColumn(sheets: any, tab: string, employeeName: stri
     const legacyIdx = findEmployeeColumnLegacyByName(rows, headerRow, name)
     if (legacyIdx !== -1) {
       const newHeader = formatEmployeeHeader(rows[namesRow][legacyIdx] || name, email)
-      const range = `${tab}!${columnLetter(legacyIdx)}${namesRow}`
+      const range = `${tab}!${columnLetter(legacyIdx)}${namesRow + 1}`
       await sheets.spreadsheets.values.update({
         spreadsheetId: SPREADSHEET_ID,
         range,
@@ -583,14 +586,15 @@ async function ensureEmployeeColumn(sheets: any, tab: string, employeeName: stri
       if (existsName && !email) return
     }
 
-  const isNew = isNewThreeColStructure(rows, headerRow)
+  const hasExistingEmpCols = (rows[headerRow]?.length ?? 0) > 2
+  const isNew = isNewThreeColStructure(rows, headerRow) || !hasExistingEmpCols
   const newHeader = email ? formatEmployeeHeader(name || email, email) : name
 
   if (isNew) {
-    const startCol = rows[namesRow].length
+    const startCol = Math.max(rows[namesRow].length, rows[headerRow].length, 2)
     await sheets.spreadsheets.values.update({
       spreadsheetId: SPREADSHEET_ID,
-      range: `${tab}!${columnLetter(startCol)}${namesRow}`,
+      range: `${tab}!${columnLetter(startCol)}${namesRow + 1}`,
       valueInputOption: 'USER_ENTERED',
       requestBody: { values: [[newHeader]] },
     })
@@ -598,7 +602,7 @@ async function ensureEmployeeColumn(sheets: any, tab: string, employeeName: stri
     if (String(headerCells[startCol] || '').trim().toLowerCase() !== 'presence') {
       await sheets.spreadsheets.values.update({
         spreadsheetId: SPREADSHEET_ID,
-        range: `${tab}!${columnLetter(startCol)}${headerRow}:${columnLetter(startCol + 2)}${headerRow}`,
+        range: `${tab}!${columnLetter(startCol)}${headerRow + 1}:${columnLetter(startCol + 2)}${headerRow + 1}`,
         valueInputOption: 'USER_ENTERED',
         requestBody: { values: [['Presence', 'Time', 'Location']] },
       })
@@ -606,7 +610,7 @@ async function ensureEmployeeColumn(sheets: any, tab: string, employeeName: stri
     await applyEmployeeFormatting(sheets, tab)
     console.log(`Added employee 3-col "${newHeader}" to "${tab}" at col ${startCol}`)
   } else {
-    const range = `${tab}!${columnLetter(rows[namesRow].length)}${namesRow}`
+    const range = `${tab}!${columnLetter(rows[namesRow].length)}${namesRow + 1}`
     await sheets.spreadsheets.values.update({
       spreadsheetId: SPREADSHEET_ID,
       range,
@@ -1109,10 +1113,10 @@ export async function getAdminGrid(tab: string) {
   const headers = rows[headerRow]
   const is3col = isNewThreeColStructure(rows, headerRow)
   const step = is3col ? COLS_PER_EMPLOYEE : 1
-  const employees = []
+  const employees: string[] = []
   for (let c = 2; c < rows[namesRow].length; c++) {
-    const n = parseHeaderName(String(rows[namesRow][c] ?? '').trim())
-    if (n) employees.push(n)
+    const fullHeader = String(rows[namesRow][c] ?? '').trim()
+    if (fullHeader) employees.push(fullHeader)
   }
   const days = []
   for (let i = headerRow + 1; i < rows.length; i++) {
