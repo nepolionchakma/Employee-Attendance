@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { shortName } from '@/lib/utils'
 
 interface AttendanceFormProps {
@@ -45,6 +46,7 @@ export default function AttendanceForm({ employeeName, employeeEmail }: Attendan
   const [status, setStatus] = useState('Office')
   const [check, setCheck] = useState<CheckState | null>(null)
   const [submitting, setSubmitting] = useState(false)
+  const router = useRouter()
 
   useEffect(() => {
     if (!employeeName && !employeeEmail) return
@@ -99,6 +101,7 @@ export default function AttendanceForm({ employeeName, employeeEmail }: Attendan
         setCheck({ kind: 'already', message: data.message })
       } else if (res.ok) {
         setCheck({ kind: 'success', message: data.message })
+        router.refresh()
       } else {
         setCheck({ kind: 'error', message: data.message })
       }
