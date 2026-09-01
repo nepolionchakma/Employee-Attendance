@@ -327,13 +327,6 @@ export default function AdminClient({ user }: { user: AdminClientUser }) {
                       <td key={emp}>{grid.absentDays?.[emp] ?? 0}</td>
                     ))}
                   </tr>
-                  <tr className="admin-summary-row admin-total-row">
-                    <td>Total</td>
-                    <td>{grid.total ?? 0}</td>
-                    {grid.employees.map((emp) => (
-                      <td key={emp} />
-                    ))}
-                  </tr>
                 </tbody>
               </table>
             </div>

@@ -409,7 +409,6 @@ async function createTab(sheets: any, title: string, year: number, month: number
     dateDayRow,
     ...Array.from({ length: daysInMonth }, (_, i) => [String(i + 1), weekdayShort(year, month, i + 1)]),
     [ABSENT_SECTION, ''],
-    ['Total', ''],
   ]
 
   await sheets.spreadsheets.values.update({
@@ -427,7 +426,6 @@ async function createTab(sheets: any, title: string, year: number, month: number
     { row: 1, col: 3 },
     { row: 1, col: 4 },
     { row: totalRow - 1, col: 0 },
-    { row: totalRow, col: 0 },
   ])
 
   await applyEmployeeFormatting(sheets, title)
@@ -711,24 +709,18 @@ async function updateAbsentSummary(sheets: any, tab: string, rows: any[]) {
   const headers = rows[headerRow]
   const is3col = isNewThreeColStructure(rows, headerRow)
   const step = is3col ? COLS_PER_EMPLOYEE : 1
-  const employeeCols = []
+  const employeeCols: number[] = []
   for (let c = 2; c < headers.length; c += step) {
     if (String(headers[c] ?? '').trim()) employeeCols.push(c)
   }
-  const counts = new Map(employeeCols.map((col) => [col, 0]))
 
+  // Find last day row to determine the range for COUNTIF
+  let lastDayRow = headerRow
   for (let i = headerRow + 1; i < rows.length; i++) {
     const day = Number(rows[i][0])
     if (!Number.isInteger(day)) break
-    for (const c of employeeCols) {
-      const v = String(rows[i][c] ?? '').trim().toLowerCase()
-      if (v === 'absent') {
-        counts.set(c, (counts.get(c) ?? 0) + 1)
-      }
-    }
+    lastDayRow = i
   }
-
-  const total = [...counts.values()].reduce((a, b) => a + b, 0)
 
   let titleRow = -1
   for (let i = headerRow + 1; i < rows.length; i++) {
@@ -739,27 +731,29 @@ async function updateAbsentSummary(sheets: any, tab: string, rows: any[]) {
   }
   if (titleRow === -1) titleRow = rows.length
 
+  // Build absent row with COUNTIF formulas per employee
   const totalCols = rows[headerRow].length
-  const absentRow = [ABSENT_SECTION, '']
+  const absentRow: string[] = [ABSENT_SECTION, '']
+  const firstDataRow = headerRow + 2 // row number in sheet (1-based)
+  const lastDataRow = lastDayRow + 1 // row number in sheet (1-based)
   for (let c = 2; c < totalCols; c++) {
-    absentRow.push(counts.has(c) ? String(counts.get(c) ?? 0) : '')
+    if (employeeCols.includes(c)) {
+      const colLetter = columnLetter(c)
+      absentRow.push(`=COUNTIF(${colLetter}${firstDataRow}:${colLetter}${lastDataRow},"Absent")`)
+    } else {
+      absentRow.push('')
+    }
   }
-
-  const totalRow = ['Total', total]
-  while (totalRow.length < totalCols) totalRow.push('')
-
-  const values = [absentRow, totalRow]
 
   await sheets.spreadsheets.values.update({
     spreadsheetId: SPREADSHEET_ID,
     range: `${tab}!A${titleRow + 1}`,
     valueInputOption: 'USER_ENTERED',
-    requestBody: { values },
+    requestBody: { values: [absentRow] },
   })
 
   await boldCells(sheets, tab, [
     { row: titleRow, col: 0 },
-    { row: titleRow + 1, col: 0 },
   ])
 }
 
@@ -1152,21 +1146,16 @@ export async function getAdminGrid(tab: string) {
     days.push({ date: raw, day: String(rows[i][1] ?? '').trim(), values })
   }
   let absentDays: Record<string, number> = {}
-  let total = 0
   for (let i = headerRow + 1; i < rows.length; i++) {
     if (String(rows[i][0] ?? '').trim() === ABSENT_SECTION) {
       for (const emp of employees) {
         const c = findEmployeeColumn(rows, headerRow, emp)
         absentDays[emp] = Number(rows[i][c] ?? 0) || 0
       }
-      const next = rows[i + 1]
-      if (next && String(next[0] ?? '').trim().toLowerCase() === 'total') {
-        total = Number(next[1] ?? 0) || 0
-      }
       break
     }
   }
-  return { tab: title, headers, employees, days, absentDays, total }
+  return { tab: title, headers, employees, days, absentDays }
 }
 
 export async function adminUpdateCell(tab: string, employeeName: string, dayLabel: string, status: string, employeeEmail?: string) {
