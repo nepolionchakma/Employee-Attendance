@@ -85,8 +85,7 @@ a {
   box-shadow: var(--shadow);
 }
 
-.btn.primary {
-  margin-top: 16px;
+.btn.primary { 
   border: none;
   color: #fff;
   background: var(--accent);
@@ -212,7 +211,8 @@ a {
   margin-top: 6px;
 }
 
-.attendance-form .btn:disabled {
+.attendance-form .btn:disabled,
+.btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
@@ -311,10 +311,12 @@ a {
   border: 1px solid var(--border);
   background: var(--bg);
   color: var(--text);
-  width: 80px;
-}
-.admin-loc-input {
   width: 100px;
+  cursor: text;
+}
+.admin-loc-input:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
 }
 .admin-inline-input {
   font: inherit;
@@ -348,17 +350,88 @@ a {
   background: var(--bg);
   color: var(--text-h);
   min-width: 80px;
+  cursor: pointer;
+}
+
+.admin-cell-select option {
+  background: var(--bg);
+  color: var(--text-h);
+}
+
+.admin-cell-select:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
 }
 
 .admin-cell-office .admin-cell-select {
   border-color: #22c55e;
 }
+.admin-cell-office .admin-cell-select option {
+  background: #f0fdf4;
+  color: #15803d;
+}
+
 .admin-cell-home .admin-cell-select {
   border-color: #3b82f6;
 }
+.admin-cell-home .admin-cell-select option {
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
 .admin-cell-absent .admin-cell-select {
   border-color: #ef4444;
   background: rgba(239, 68, 68, 0.08);
+}
+.admin-cell-absent .admin-cell-select option {
+  background: #fef2f2;
+  color: #dc2626;
+}
+
+@media (prefers-color-scheme: dark) {
+  .admin-cell-office .admin-cell-select option {
+    background: #052e16;
+    color: #86efac;
+  }
+  .admin-cell-home .admin-cell-select option {
+    background: #1e3a5f;
+    color: #93c5fd;
+  }
+  .admin-cell-absent .admin-cell-select option {
+    background: #450a0a;
+    color: #fca5a5;
+  }
+}
+
+.admin-time-display {
+  display: block;
+  font-size: 11px;
+  color: var(--text);
+  margin-top: 2px;
+  opacity: 0.7;
+}
+
+.admin-time-input {
+  font: inherit;
+  font-size: 11px;
+  padding: 2px 4px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  width: 72px;
+  margin-top: 2px;
+  cursor: text;
+}
+
+.admin-time-input:focus {
+  border-color: var(--accent-border);
+  outline: none;
+}
+
+.admin-time-input:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
 }
 
 .admin-saving {
