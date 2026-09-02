@@ -772,7 +772,7 @@ async function updateAbsentSummary(sheets: any, tab: string, rows: any[]) {
   for (let c = 2; c < totalCols; c++) {
     if (employeeCols.includes(c)) {
       const colLetter = columnLetter(c)
-      absentRow.push(`=COUNTIF(${colLetter}${firstDataRow}:${colLetter}${lastDataRow},"Absent")`)
+      absentRow.push(`=COUNTIF(${colLetter}${firstDataRow}:${colLetter}${lastDataRow},"Absent*")`)
     } else {
       absentRow.push('')
     }
@@ -883,11 +883,9 @@ async function applyEmployeeFormatting(sheets: any, tab: string) {
     requests.push(bgCells(0, sc, ec, color))
     requests.push(bgCells(1, sc, ec, color))
 
-    const tsSides = ['top', 'right']
-    if (i === 0) tsSides.push('left')
-    requests.push(bdrCell(0, sc, tsSides))
-    // Add right border on the last employee column of row 0 (names row)
-    if (i === numEmps - 1) requests.push(bdrCell(0, ec - 1, ['right']))
+    // Row 0 (names row): only top border on first col, right border on last col
+    requests.push(bdrCell(0, sc, ['top', 'left']))
+    if (i === numEmps - 1) requests.push(bdrCell(0, ec - 1, ['top', 'right']))
 
     requests.push(bdrCell(1, ec - 1, ['right']))
     if (i === 0) requests.push(bdrCell(1, sc, ['left']))
@@ -925,6 +923,16 @@ async function applyEmployeeFormatting(sheets: any, tab: string) {
     }
     requests.push(bdrRange(absentRowIdx, absentRowIdx + 1, sc, ec, ['top', 'bottom', 'left', 'right']))
   }
+
+  // Set wrapStrategy CLIP on all data cells to prevent overflow
+  const totalCols = 2 + numEmps * COLS_PER_EMPLOYEE
+  requests.push({
+    repeatCell: {
+      range: { sheetId, startRowIndex: 0, endRowIndex: lastDayRow + 2, startColumnIndex: 0, endColumnIndex: totalCols },
+      cell: { userEnteredFormat: { wrapStrategy: 'CLIP' } },
+      fields: 'userEnteredFormat.wrapStrategy',
+    },
+  })
 
   if (requests.length > 0) {
     await sheets.spreadsheets.batchUpdate({
