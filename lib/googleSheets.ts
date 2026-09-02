@@ -14,7 +14,7 @@ const CREDENTIALS_BASE64 = process.env.GOOGLE_SERVICE_ACCOUNT_JSON_BASE64 || ''
 const TZ = 'Asia/Dhaka'
 
 const ABSENT_SECTION = 'Absent Days'
-const COLS_PER_EMPLOYEE = 3
+const COLS_PER_EMPLOYEE = 2
 
 export function hasGoogleCredentials() {
   return Boolean(CREDENTIALS_JSON || CREDENTIALS_BASE64) || fs.existsSync(CREDENTIALS_PATH)
@@ -316,10 +316,20 @@ function columnLetter(index: number) {
 
 /* ---- 3-column structure detection ---- */
 
-function isNewThreeColStructure(rows: any[], headerRow: number) {
+function isAttendanceStructure(rows: any[], headerRow: number) {
   const row = rows[headerRow] || []
   for (let i = 2; i < Math.min(8, row.length); i++) {
-    if (String(row[i] || '').trim().toLowerCase() === 'presence') return true
+    const h = String(row[i] || '').trim().toLowerCase()
+    if (h === 'presence' || h === 'status') return true
+  }
+  return false
+}
+
+/** Legacy detection: checks if sheet has 3-col structure (Presence/Time/Location) */
+function isLegacyThreeCol(rows: any[], headerRow: number) {
+  const row = rows[headerRow] || []
+  for (let i = 2; i < Math.min(10, row.length); i++) {
+    if (String(row[i] || '').trim().toLowerCase() === 'time') return true
   }
   return false
 }
@@ -334,7 +344,7 @@ async function migrateToThreeCol(sheets: any, tab: string) {
   })
   const rows = res.data.values || []
   const headerRow = findHeaderRow(rows)
-  if (isNewThreeColStructure(rows, headerRow)) return false
+  if (isAttendanceStructure(rows, headerRow)) return false
 
   const headers = rows[headerRow]
   const newHeaders0 = [...headers.slice(0, 2)]
@@ -388,7 +398,7 @@ async function migrateToThreeCol(sheets: any, tab: string) {
   return true
 }
 
-/* ---- createTab with Timestamp row + Date/Day/Presence/Time/Location headers ---- */
+/* ---- createTab with Timestamp row + Date/Day/Presence/Location headers ---- */
 
 async function createTab(sheets: any, title: string, year: number, month: number) {
   await sheets.spreadsheets.batchUpdate({
@@ -422,15 +432,12 @@ async function createTab(sheets: any, title: string, year: number, month: number
     { row: 0, col: 0 },
     { row: 1, col: 0 },
     { row: 1, col: 1 },
-    { row: 1, col: 2 },
-    { row: 1, col: 3 },
-    { row: 1, col: 4 },
     { row: totalRow - 1, col: 0 },
   ])
 
   await applyEmployeeFormatting(sheets, title)
 
-  console.log(`Created attendance tab "${title}" (${daysInMonth} days, 3-col with Timestamp row)`)
+  console.log(`Created attendance tab "${title}" (${daysInMonth} days, 2-col with Timestamp row)`)
   return title
 }
 
@@ -496,7 +503,7 @@ function findEmployeeColumnByEmail(rows: any[], headerRow: number, email: string
   const headers = rows[namesRow]
   const target = String(email || '').trim().toLowerCase()
   if (!target) return -1
-  const step = isNewThreeColStructure(rows, headerRow) ? COLS_PER_EMPLOYEE : 1
+  const step = isAttendanceStructure(rows, headerRow) ? COLS_PER_EMPLOYEE : 1
   for (let i = 2; i < headers.length; i += step) {
     const parsed = parseHeaderEmail(headers[i])
     if (parsed && parsed === target) return i
@@ -509,7 +516,7 @@ function findEmployeeColumnLegacyByName(rows: any[], headerRow: number, name: st
   const headers = rows[namesRow]
   const target = String(name || '').trim().toLowerCase()
   if (!target) return -1
-  const step = isNewThreeColStructure(rows, headerRow) ? COLS_PER_EMPLOYEE : 1
+  const step = isAttendanceStructure(rows, headerRow) ? COLS_PER_EMPLOYEE : 1
   for (let i = 2; i < headers.length; i += step) {
     const h = String(headers[i] || '').trim()
     if (!h) continue
@@ -537,7 +544,7 @@ function findEmployeeColumn(rows: any[], headerRow: number, employeeName: string
     const byName = findEmployeeColumnLegacyByName(rows, headerRow, employeeName)
     if (byName !== -1) return byName
     const headers = rows[namesRow]
-    const step = isNewThreeColStructure(rows, headerRow) ? COLS_PER_EMPLOYEE : 1
+    const step = isAttendanceStructure(rows, headerRow) ? COLS_PER_EMPLOYEE : 1
     const target = String(employeeName).trim().toLowerCase()
     const idx = headers.findIndex(
       (h: any) => String(h || '').trim().toLowerCase() === target || parseHeaderName(String(h || '').trim()).toLowerCase() === target,
@@ -552,8 +559,8 @@ function findEmployeeColumn(rows: any[], headerRow: number, employeeName: string
 }
 
 /**
- * Ensures employee column exists. For 3-col structure, adds 3 columns at once
- * (Presence/Time/Location) with sub-header row.
+ * Ensures employee column exists. For attendance structure, adds 2 columns at once
+ * (Presence/Location) with sub-header row.
  */
 async function ensureEmployeeColumn(sheets: any, tab: string, employeeName: string, employeeEmail?: string) {
   const email = String(employeeEmail || '').trim().toLowerCase()
@@ -597,7 +604,7 @@ async function ensureEmployeeColumn(sheets: any, tab: string, employeeName: stri
     }
 
   const hasExistingEmpCols = (rows[headerRow]?.length ?? 0) > 2
-  const isNew = isNewThreeColStructure(rows, headerRow) || !hasExistingEmpCols
+  const isNew = isAttendanceStructure(rows, headerRow) || !hasExistingEmpCols
   const newHeader = email ? formatEmployeeHeader(name || email, email) : name
 
   if (isNew) {
@@ -626,13 +633,13 @@ async function ensureEmployeeColumn(sheets: any, tab: string, employeeName: stri
     if (String(headerCells[startCol] || '').trim().toLowerCase() !== 'presence') {
       await sheets.spreadsheets.values.update({
         spreadsheetId: SPREADSHEET_ID,
-        range: `${tab}!${columnLetter(startCol)}${headerRow + 1}:${columnLetter(startCol + 2)}${headerRow + 1}`,
+        range: `${tab}!${columnLetter(startCol)}${headerRow + 1}:${columnLetter(startCol + 1)}${headerRow + 1}`,
         valueInputOption: 'USER_ENTERED',
-        requestBody: { values: [['Presence', 'Time', 'Location']] },
+        requestBody: { values: [['Presence', 'Location']] },
       })
     }
     await applyEmployeeFormatting(sheets, tab)
-    console.log(`Added employee 3-col "${newHeader}" to "${tab}" at col ${startCol}`)
+    console.log(`Added employee 2-col "${newHeader}" to "${tab}" at col ${startCol}`)
   } else {
     const range = `${tab}!${columnLetter(rows[namesRow].length)}${namesRow + 1}`
     await sheets.spreadsheets.values.update({
@@ -645,14 +652,15 @@ async function ensureEmployeeColumn(sheets: any, tab: string, employeeName: stri
   }
 }
 
-/** Fills empty cells for past days with "Absent" (and "12:00 AM | N/A" for 3-col) or "Holiday" for Fridays. */
+/** Fills empty cells for past days with "Absent - 12:00 AM" (for 2-col) or "Holiday" for Fridays. */
 async function markAbsentForPastDays(sheets: any, tab: string, rows: any[]) {
   const { day: today } = nowParts()
   const headerRow = findHeaderRow(rows)
   const namesRow = findEmployeeNamesRow(rows, headerRow)
   const firstEmployeeCol = 2
   const lastEmployeeCol = rows[headerRow].length
-  const is3col = isNewThreeColStructure(rows, headerRow)
+  const isAtt = isAttendanceStructure(rows, headerRow)
+  const isLegacy3 = isLegacyThreeCol(rows, headerRow)
 
   if (namesRow < headerRow) {
     while (rows[namesRow].length < lastEmployeeCol) rows[namesRow].push('')
@@ -675,17 +683,28 @@ async function markAbsentForPastDays(sheets: any, tab: string, rows: any[]) {
     const isFriday = dayName === 'Fri'
     for (let c = firstEmployeeCol; c < lastEmployeeCol; c++) {
       if (String(rows[i][c] ?? '').trim() === '') {
-        if (is3col) {
+        if (isLegacy3) {
+          // Legacy 3-col: merge time into presence
           if (isFriday) {
             rows[i][c] = 'Holiday'
             rows[i][c + 1] = ''
             rows[i][c + 2] = ''
           } else {
-            rows[i][c] = 'Absent'
-            rows[i][c + 1] = '12:00 AM'
+            rows[i][c] = 'Absent - 12:00 AM'
+            rows[i][c + 1] = ''
             rows[i][c + 2] = 'N/A'
           }
           c += 2
+        } else if (isAtt) {
+          // New 2-col: presence + location
+          if (isFriday) {
+            rows[i][c] = 'Holiday'
+            rows[i][c + 1] = ''
+          } else {
+            rows[i][c] = 'Absent - 12:00 AM'
+            rows[i][c + 1] = 'N/A'
+          }
+          c += 1
         } else {
           rows[i][c] = isFriday ? 'Holiday' : 'Absent'
         }
@@ -721,7 +740,7 @@ async function markAbsentForPastDays(sheets: any, tab: string, rows: any[]) {
 async function updateAbsentSummary(sheets: any, tab: string, rows: any[]) {
   const headerRow = findHeaderRow(rows)
   const headers = rows[headerRow]
-  const is3col = isNewThreeColStructure(rows, headerRow)
+  const is3col = isAttendanceStructure(rows, headerRow)
   const step = is3col ? COLS_PER_EMPLOYEE : 1
   const employeeCols: number[] = []
   for (let c = 2; c < headers.length; c += step) {
@@ -945,15 +964,25 @@ export async function getAttendance(employeeName: string, employeeEmail?: string
   await ensureEmployeeColumn(sheets, tab, employeeName, employeeEmail)
   const rows = await loadGrid(sheets, tab)
   const headerRow = findHeaderRow(rows)
-  const is3col = isNewThreeColStructure(rows, headerRow)
+  const is3col = isAttendanceStructure(rows, headerRow)
   const rowIdx = findDayRow(rows, headerRow, day)
   const colIdx = findEmployeeColumn(rows, headerRow, employeeName, employeeEmail)
 
   if (is3col) {
-    const status = String(rows[rowIdx][colIdx] ?? '').trim()
+    const rawPresence = String(rows[rowIdx][colIdx] ?? '').trim()
+    if (!rawPresence) return { attended: false }
+    // Handle new 2-col format: 'Office - 12:00 AM'
+    const dashIdx = rawPresence.lastIndexOf(' - ')
+    if (dashIdx !== -1) {
+      const status = rawPresence.substring(0, dashIdx).trim()
+      const time = rawPresence.substring(dashIdx + 3).trim()
+      const location = String(rows[rowIdx][colIdx + 1] ?? '').trim()
+      return { attended: true, status, time, location }
+    }
+    // Handle legacy 3-col format: status in col, time in col+1, location in col+2
     const time = String(rows[rowIdx][colIdx + 1] ?? '').trim()
     const location = String(rows[rowIdx][colIdx + 2] ?? '').trim()
-    return status ? { attended: true, status, time, location } : { attended: false }
+    return { attended: true, status: rawPresence, time, location }
   }
   const status = String(rows[rowIdx][colIdx] ?? '').trim()
   return status ? { attended: true, status } : { attended: false }
@@ -961,7 +990,7 @@ export async function getAttendance(employeeName: string, employeeEmail?: string
 
 /**
  * Writes attendance to today's cell for the employee.
- * For 3-col: writes [status, time, location].
+ * For 2-col: writes ["Status - Time", location].
  * For legacy 1-col: writes [status].
  */
 export async function markAttendance(employeeName: string, employeeEmail?: string, day?: number | string, status?: string, time?: string, location?: string) {
@@ -982,7 +1011,7 @@ export async function markAttendance(employeeName: string, employeeEmail?: strin
 
   let rows = await loadGrid(sheets, tab)
   let headerRow = findHeaderRow(rows)
-  let isNew = isNewThreeColStructure(rows, headerRow)
+  let isNew = isAttendanceStructure(rows, headerRow)
   if (!isNew) {
     const migrated = await migrateToThreeCol(sheets, tab)
     if (migrated) {
@@ -999,12 +1028,13 @@ export async function markAttendance(employeeName: string, employeeEmail?: strin
   const loc = String(location || '').trim() || 'N/A'
 
   if (isNew) {
-    const range = `${tab}!${columnLetter(colIdx)}${rowIdx + 1}:${columnLetter(colIdx + 2)}${rowIdx + 1}`
+    const presenceVal = `${status} - ${t}`
+    const range = `${tab}!${columnLetter(colIdx)}${rowIdx + 1}:${columnLetter(colIdx + 1)}${rowIdx + 1}`
     const written = await sheets.spreadsheets.values.update({
       spreadsheetId: SPREADSHEET_ID,
       range,
       valueInputOption: 'USER_ENTERED',
-      requestBody: { values: [[status, t, loc]] },
+      requestBody: { values: [[presenceVal, loc]] },
     })
     return (written.data.updatedCells ?? 0) > 0
   }
@@ -1088,7 +1118,7 @@ export async function batchUpdateAttendanceCells(tab: string, updates: { employe
   })
   const rows = res.data.values || []
   const headerRow = findHeaderRow(rows)
-  const is3col = isNewThreeColStructure(rows, headerRow)
+  const is3col = isAttendanceStructure(rows, headerRow)
   const step = is3col ? COLS_PER_EMPLOYEE : 1
   const allowed = ['', 'Office', 'Home', 'Absent']
 
@@ -1104,9 +1134,26 @@ export async function batchUpdateAttendanceCells(tab: string, updates: { employe
     const colIdx = findEmployeeColumn(rows, headerRow, employeeName, employeeEmail)
     const rowIdx = findDayRow(rows, headerRow, Number(day) || day)
     if (is3col) {
+      // Merged format: 'Status - Time' in presence col, location in next col
+      let timeStr = String(u.time || '').trim()
+      if (!timeStr) {
+        // Preserve existing time from the cell if status not changing, or auto-set for new status
+        const existingPresence = String(rows[rowIdx]?.[colIdx] ?? '').trim()
+        const dashIdx = existingPresence.lastIndexOf(' - ')
+        const existingTime = dashIdx !== -1 ? existingPresence.substring(dashIdx + 3).trim() : ''
+        const existingStatus = dashIdx !== -1 ? existingPresence.substring(0, dashIdx).trim() : existingPresence
+        if (normalized && normalized !== existingStatus) {
+          // Status changed — use current time
+          timeStr = new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: TZ }).format(new Date())
+        } else if (existingTime) {
+          // Status unchanged — preserve existing time
+          timeStr = existingTime
+        }
+      }
+      const presenceVal = normalized && timeStr ? `${normalized} - ${timeStr}` : normalized
       data.push({
-        range: `${title}!${columnLetter(colIdx)}${rowIdx + 1}:${columnLetter(colIdx + 2)}${rowIdx + 1}`,
-        values: [[normalized, u.time || '', u.location || '']],
+        range: `${title}!${columnLetter(colIdx)}${rowIdx + 1}:${columnLetter(colIdx + 1)}${rowIdx + 1}`,
+        values: [[presenceVal, u.location || '']],
       })
     } else {
       data.push({
@@ -1133,7 +1180,7 @@ export async function batchUpdateAttendanceCells(tab: string, updates: { employe
 
 /**
  * Returns the full grid for a tab (for admin).
- * For 3-col: reads Presence, Time, Location per employee.
+ * For 2-col: reads merged Presence + Location per employee.
  */
 export async function getAdminGrid(tab: string) {
   const sheets = await sheetsClient()
@@ -1147,13 +1194,14 @@ export async function getAdminGrid(tab: string) {
   const headerRow = findHeaderRow(rows)
   const namesRow = findEmployeeNamesRow(rows, headerRow)
   const headers = rows[headerRow]
-  const is3col = isNewThreeColStructure(rows, headerRow)
+  const is3col = isAttendanceStructure(rows, headerRow)
   const step = is3col ? COLS_PER_EMPLOYEE : 1
   const employees: string[] = []
-  for (let c = 2; c < rows[namesRow].length; c++) {
+  for (let c = 2; c < rows[namesRow].length; c += COLS_PER_EMPLOYEE) {
     const fullHeader = String(rows[namesRow][c] ?? '').trim()
     if (fullHeader) employees.push(fullHeader)
   }
+  const isLegacy = isLegacyThreeCol(rows, headerRow)
   const days = []
   for (let i = headerRow + 1; i < rows.length; i++) {
     const raw = String(rows[i][0] ?? '').trim()
@@ -1165,10 +1213,15 @@ export async function getAdminGrid(tab: string) {
     const locationValues: Record<string, string> = {}
     for (const emp of employees) {
       const c = findEmployeeColumn(rows, headerRow, emp)
-      if (is3col) {
+      if (isLegacy) {
+        // Legacy 3-col: separate status, time, location
         values[emp] = String(rows[i][c] ?? '').trim()
         timeValues[emp] = String(rows[i][c + 1] ?? '').trim()
         locationValues[emp] = String(rows[i][c + 2] ?? '').trim()
+      } else if (is3col) {
+        // New 2-col: merged 'Status - Time' in presence, location in next col
+        values[emp] = String(rows[i][c] ?? '').trim()
+        locationValues[emp] = String(rows[i][c + 1] ?? '').trim()
       } else {
         values[emp] = String(rows[i][c] ?? '').trim()
       }
@@ -1201,7 +1254,7 @@ export async function adminUpdateCell(tab: string, employeeName: string, dayLabe
   })
   const rows = res.data.values || []
   const headerRow = findHeaderRow(rows)
-  const is3col = isNewThreeColStructure(rows, headerRow)
+  const is3col = isAttendanceStructure(rows, headerRow)
   const colIdx = findEmployeeColumn(rows, headerRow, employeeName, employeeEmail)
   const rowIdx = findDayRow(rows, headerRow, Number(dayLabel) || dayLabel)
 
@@ -1212,13 +1265,14 @@ export async function adminUpdateCell(tab: string, employeeName: string, dayLabe
   }
 
   if (is3col) {
-    const range = `${title}!${columnLetter(colIdx)}${rowIdx + 1}:${columnLetter(colIdx + 2)}${rowIdx + 1}`
     const t = new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: TZ }).format(new Date())
+    const presenceVal = normalized ? `${normalized} - ${t}` : ''
+    const range = `${title}!${columnLetter(colIdx)}${rowIdx + 1}:${columnLetter(colIdx + 1)}${rowIdx + 1}`
     await sheets.spreadsheets.values.update({
       spreadsheetId: SPREADSHEET_ID,
       range,
       valueInputOption: 'USER_ENTERED',
-      requestBody: { values: [[normalized, t, 'N/A']] },
+      requestBody: { values: [[presenceVal, 'N/A']] },
     })
   } else {
     const range = `${title}!${columnLetter(colIdx)}${rowIdx + 1}`

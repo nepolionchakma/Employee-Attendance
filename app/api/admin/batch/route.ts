@@ -32,12 +32,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ok: true, updated: cells.length })
     }
 
-    // Attendance batch: { attendanceUpdates: [{employeeName, day, status}] }
+    // Attendance batch: { attendanceUpdates: [{employeeName, day, status, time?, location?}] }
     if (Array.isArray(body?.attendanceUpdates) && body.attendanceUpdates.length) {
-      const updates = body.attendanceUpdates.map((u: { employeeName?: string; day?: string; status?: string }) => ({
+      const updates = body.attendanceUpdates.map((u: { employeeName?: string; day?: string; status?: string; time?: string; location?: string }) => ({
         employeeName: String(u.employeeName || '').trim(),
         day: String(u.day || '').trim(),
         status: String(u.status ?? '').trim(),
+        time: String(u.time || '').trim(),
+        location: String(u.location || '').trim(),
       }))
       if (updates.some((u: { employeeName: string; day: string }) => !u.employeeName || !u.day)) {
         return NextResponse.json({ message: 'each attendanceUpdate needs employeeName and day' }, { status: 400 })

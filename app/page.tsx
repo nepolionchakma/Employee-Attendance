@@ -47,7 +47,7 @@ export default async function HomePage() {
           if (header) {
             for (const d of days) {
               const v = String(d.values?.[header] || '').trim()
-              if (v === 'Office' || v === 'Home') present++
+              if (v === 'Office' || v === 'Home' || v.startsWith('Office - ') || v.startsWith('Home - ')) present++
             }
             absent = Number((absentDays as Record<string, number>)[header] ?? 0)
           }

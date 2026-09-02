@@ -10,7 +10,7 @@ interface AttendanceGrid {
   tab: string
   tabs: string[]
   employees: string[]
-  days: { date: string; day: string; values: Record<string, string>; timeValues: Record<string, string>; locationValues: Record<string, string> }[]
+  days: { date: string; day: string; values: Record<string, string>; locationValues: Record<string, string> }[]
   absentDays: Record<string, number>
 }
 
@@ -31,9 +31,10 @@ interface AdminClientUser {
 
 function statusClass(s: string) {
   const v = String(s || '').trim()
-  if (v === 'Office') return 'admin-cell-office'
-  if (v === 'Home') return 'admin-cell-home'
-  if (v === 'Absent') return 'admin-cell-absent'
+  if (v === 'Office' || v.startsWith('Office - ')) return 'admin-cell-office'
+  if (v === 'Home' || v.startsWith('Home - ')) return 'admin-cell-home'
+  if (v === 'Absent' || v.startsWith('Absent - ')) return 'admin-cell-absent'
+  if (v === 'Holiday') return 'admin-cell-office'
   return 'admin-cell-empty'
 }
 
@@ -81,8 +82,8 @@ export default function AdminClient({ user }: { user: AdminClientUser }) {
   const [saving, setSaving] = useState(false)
   const [success, setSuccess] = useState('')
 
-  // pending edits: attendance -> { "emp::date": { employeeName, day, status, time, location } }
-  const [pendingAttendance, setPendingAttendance] = useState<Record<string, { employeeName: string; day: string; status: string; time?: string; location?: string }>>({})
+  // pending edits: attendance -> { "emp::date": { employeeName, day, status, location } }
+  const [pendingAttendance, setPendingAttendance] = useState<Record<string, { employeeName: string; day: string; status: string; location?: string }>>({})
   // raw -> { "row::col": { row, col, value } }
   const [pendingRaw, setPendingRaw] = useState<Record<string, { row: number; col: number; value: string }>>({})
 
@@ -133,7 +134,6 @@ export default function AdminClient({ user }: { user: AdminClientUser }) {
       const days = prev.days.map((d) => {
         if (d.date !== date) return d
         if (field === 'status') return { ...d, values: { ...d.values, [employeeName]: value } }
-        if (field === 'time') return { ...d, timeValues: { ...d.timeValues, [employeeName]: value } }
         if (field === 'location') return { ...d, locationValues: { ...d.locationValues, [employeeName]: value } }
         return d
       })
@@ -141,7 +141,7 @@ export default function AdminClient({ user }: { user: AdminClientUser }) {
     })
     const key = `${employeeName}::${date}`
     setPendingAttendance((prev) => {
-      const existing = prev[key] || { employeeName, day: date, status: '', time: '', location: '' }
+      const existing = prev[key] || { employeeName, day: date, status: '', location: '' }
       return { ...prev, [key]: { ...existing, [field === 'status' ? 'status' : field]: value } }
     })
   }
@@ -299,7 +299,6 @@ export default function AdminClient({ user }: { user: AdminClientUser }) {
                     {grid.employees.map((emp) => (
                       <React.Fragment key={emp}>
                         <th className="admin-sub-header">Presence</th>
-                        <th className="admin-sub-header">Time</th>
                         <th className="admin-sub-header">Location</th>
                       </React.Fragment>
                     ))}
@@ -312,16 +311,18 @@ export default function AdminClient({ user }: { user: AdminClientUser }) {
                       <td className="admin-day">{row.day}</td>
                       {grid.employees.map((emp) => {
                         const val = row.values[emp] || ''
-                        const timeVal = row.timeValues?.[emp] || ''
                         const locVal = row.locationValues?.[emp] || ''
                         const key = `${emp}::${row.date}`
                         const isDirty = key in pendingAttendance
+                        // Extract status from merged 'Status - Time' format
+                        const dashIdx = val.lastIndexOf(' - ')
+                        const statusVal = dashIdx !== -1 ? val.substring(0, dashIdx).trim() : val
                         return (
                           <React.Fragment key={emp}>
-                            <td className={`${statusClass(val)}${isDirty ? ' admin-cell-dirty' : ''}`}>
+                            <td className={`${statusClass(statusVal)}${isDirty ? ' admin-cell-dirty' : ''}`}>
                               <select
                                 className="admin-cell-select"
-                                value={val}
+                                value={statusVal}
                                 onChange={(e) => handleAttendanceEdit(emp, row.date, 'status', e.target.value)}
                                 disabled={saving}
                                 aria-label={`${emp} presence on ${row.date}`}
@@ -332,15 +333,6 @@ export default function AdminClient({ user }: { user: AdminClientUser }) {
                                   </option>
                                 ))}
                               </select>
-                            </td>
-                            <td className={isDirty ? 'admin-cell-dirty' : ''}>
-                              <input
-                                className="admin-time-input"
-                                value={timeVal}
-                                onChange={(e) => handleAttendanceEdit(emp, row.date, 'time', e.target.value)}
-                                disabled={saving}
-                                aria-label={`${emp} time on ${row.date}`}
-                              />
                             </td>
                             <td className={isDirty ? 'admin-cell-dirty' : ''}>
                               <input
@@ -360,7 +352,7 @@ export default function AdminClient({ user }: { user: AdminClientUser }) {
                   <tr className="admin-summary-row">
                     <td colSpan={2}>Absent Days</td>
                     {grid.employees.map((emp) => (
-                      <td key={emp} colSpan={3}>{grid.absentDays?.[emp] ?? 0}</td>
+                      <td key={emp} colSpan={2}>{grid.absentDays?.[emp] ?? 0}</td>
                     ))}
                   </tr>
                 </tbody>
