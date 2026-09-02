@@ -28,7 +28,7 @@ export async function POST(request: NextRequest) {
   const name = String(body?.name || '').trim()
   const email = String(body?.email || '').trim().toLowerCase()
   const phone = String(body?.phone || '').trim()
-  const role = String(body?.role || 'employee').trim().toLowerCase()
+  const role = String(body?.role || 'Employee').trim().toLowerCase()
   if (!email || !email.includes('@')) return NextResponse.json({ message: 'Valid email required' }, { status: 400 })
   if (!name) return NextResponse.json({ message: 'Name required' }, { status: 400 })
   try {
@@ -51,7 +51,7 @@ export async function PUT(request: NextRequest) {
   const name = String(body?.name || '').trim()
   const email = String(body?.email || '').trim().toLowerCase()
   const phone = String(body?.phone || '').trim()
-  const role = String(body?.role || 'employee').trim().toLowerCase()
+  const role = String(body?.role || 'Employee').trim().toLowerCase()
   if (!Number.isInteger(index) || index < 0) return NextResponse.json({ message: 'Valid index required' }, { status: 400 })
   if (!email || !email.includes('@')) return NextResponse.json({ message: 'Valid email required' }, { status: 400 })
   try {

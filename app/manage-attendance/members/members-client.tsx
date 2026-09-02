@@ -16,7 +16,7 @@ interface PendingEdit {
   role: string
 }
 
-const ROLE_OPTIONS = ['employee', 'admin']
+const ROLE_OPTIONS = ['Employee', 'Admin']
 
 function SaveIcon() {
   return (
@@ -43,7 +43,7 @@ export default function MembersClient() {
   const [success, setSuccess] = useState('')
   const [saving, setSaving] = useState(false)
   const [showAddRow, setShowAddRow] = useState(false)
-  const [newRow, setNewRow] = useState<PendingEdit>({ name: '', email: '', phone: '', role: 'employee' })
+  const [newRow, setNewRow] = useState<PendingEdit>({ name: '', email: '', phone: '', role: 'Employee' })
 
   const [pendingEdits, setPendingEdits] = useState<Record<number, PendingEdit>>({})
   const [pendingAdds, setPendingAdds] = useState<PendingEdit[]>([])
@@ -91,7 +91,7 @@ export default function MembersClient() {
       return
     }
     setPendingAdds((prev) => [...prev, { ...newRow }])
-    setNewRow({ name: '', email: '', phone: '', role: 'employee' })
+    setNewRow({ name: '', email: '', phone: '', role: 'Employee' })
     setShowAddRow(false)
     setError('')
     setSuccess('')
@@ -171,7 +171,7 @@ export default function MembersClient() {
     setPendingEdits({})
     setPendingAdds([])
     setShowAddRow(false)
-    setNewRow({ name: '', email: '', phone: '', role: 'employee' })
+    setNewRow({ name: '', email: '', phone: '', role: 'Employee' })
     setError('')
     setSuccess('')
   }
@@ -290,8 +290,9 @@ export default function MembersClient() {
                     </td>
                     <td>
                       <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                        {m._dirty && <span className="admin-dirty-dot" title="Unsaved" />}
+
                         <button className="btn" style={{ padding: '6px 10px', fontSize: 13, color: '#e5484d', borderColor: '#e5484d' }} onClick={() => handleDelete(idx)} disabled={saving}>Delete</button>
+                        {m._dirty && <span className="admin-dirty-dot" title="Unsaved" />}
                       </div>
                     </td>
                   </tr>

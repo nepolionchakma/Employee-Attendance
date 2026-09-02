@@ -23,7 +23,7 @@ export async function GET(request: NextRequest) {
     } catch (e: unknown) {
       const msg = String((e as Error)?.message || '')
       const isStructureError =
-        msg.includes('No header row with "Date"') || msg.includes('not found in the sheet headers')
+        msg.includes('No header row') || msg.includes('not found in the sheet headers') || msg.includes('not found')
       if (!isStructureError) throw e
       const raw = await getRawSheet(tab)
       return NextResponse.json({ tabs, kind: 'raw', tab: raw.tab, values: raw.values })

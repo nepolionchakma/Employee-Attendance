@@ -461,6 +461,22 @@ a {
   padding: 4px 6px;
 }
 
+.admin-raw-table thead th {
+  padding: 8px 6px;
+  text-align: left;
+  border-bottom: 2px solid var(--border);
+}
+
+.admin-raw-row-num {
+  width: 40px;
+  text-align: center;
+  font-size: 11px;
+  color: var(--text);
+  opacity: 0.5;
+  user-select: none;
+  padding: 4px 6px;
+}
+
 .admin-raw-input {
   width: 100%;
   min-width: 80px;

@@ -69,7 +69,7 @@ async function sheetIdFor(sheets: any, tab: string) {
 }
 
 /* ---- Employees / Members directory ---- */
-const EMPLOYEES_SHEET = (process.env.EMPLOYEES_SHEET_TAB || 'Employees').trim() || 'Employees'
+const EMPLOYEES_SHEET = (process.env.EMPLOYEES_SHEET_TAB || 'Members').trim() || 'Members'
 const EMPLOYEES_SHEET_CANDIDATES = [EMPLOYEES_SHEET].filter(Boolean)
 
 let employeesCache: any[] | null = null
@@ -78,7 +78,7 @@ const EMPLOYEES_CACHE_TTL = 60 * 1000
 
 function normalizeRole(v: string) {
   const r = String(v || '').trim().toLowerCase()
-  return r === 'admin' ? 'admin' : 'employee'
+  return r === 'admin' ? 'Admin' : 'Employee'
 }
 
 async function resolveEmployeesSheetName(sheets: any) {
@@ -104,7 +104,7 @@ export async function ensureEmployeesSheet() {
         const seed = (ALLOWED_EMAILS || []).map((email) => {
           const e = String(email).trim()
           const name = e.split('@')[0].replace(/[._]/g, ' ')
-          const role = adminSet.has(e.toLowerCase()) ? 'admin' : 'employee'
+          const role = adminSet.has(e.toLowerCase()) ? 'Admin' : 'Employee'
           return [name, e, '', role]
         })
         if (seed.length) {
@@ -144,7 +144,7 @@ export async function ensureEmployeesSheet() {
     const rows = (ALLOWED_EMAILS || []).map((email) => {
       const e = String(email).trim()
       const name = e.split('@')[0].replace(/[._]/g, ' ')
-      const role = adminSet.has(e.toLowerCase()) ? 'admin' : 'employee'
+      const role = adminSet.has(e.toLowerCase()) ? 'Admin' : 'Employee'
       return [name, e, '', role]
     })
     if (rows.length) {
@@ -168,7 +168,7 @@ export async function getEmployees({ forceRefresh = false } = {}) {
       name: String(email).split('@')[0].replace(/[._]/g, ' '),
       email: String(email).trim(),
       phone: '',
-      role: adminSet.has(String(email).trim().toLowerCase()) ? 'admin' : 'employee',
+      role: adminSet.has(String(email).trim().toLowerCase()) ? 'Admin' : 'Employee',
     }))
   }
   const now = Date.now()
@@ -192,7 +192,7 @@ export async function getEmployees({ forceRefresh = false } = {}) {
         name: String(email).split('@')[0].replace(/[._]/g, ' '),
         email: String(email).trim(),
         phone: '',
-        role: adminSet.has(String(email).trim().toLowerCase()) ? 'admin' : 'employee',
+        role: adminSet.has(String(email).trim().toLowerCase()) ? 'Admin' : 'Employee',
       }))
       employeesCache = fallback
       employeesCacheAt = now
@@ -219,7 +219,7 @@ export async function getEmployees({ forceRefresh = false } = {}) {
       name: String(email).split('@')[0].replace(/[._]/g, ' '),
       email: String(email).trim(),
       phone: '',
-      role: adminSet.has(String(email).trim().toLowerCase()) ? 'admin' : 'employee',
+      role: adminSet.has(String(email).trim().toLowerCase()) ? 'Admin' : 'Employee',
     }))
   }
 }
@@ -229,7 +229,7 @@ export function clearEmployeesCache() {
   employeesCacheAt = 0
 }
 
-export async function addEmployee({ name, email, phone = '', role = 'employee' }: { name?: string; email: string; phone?: string; role?: string }) {
+export async function addEmployee({ name, email, phone = '', role = 'Employee' }: { name?: string; email: string; phone?: string; role?: string }) {
   if (!email || !email.includes('@')) throw new Error('Valid Gmail is required')
   const sheets = await sheetsClient()
   const tab = await ensureEmployeesSheet()

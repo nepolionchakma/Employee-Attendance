@@ -69,7 +69,7 @@ export default function Navbar({ user }: { user: NavbarUser }) {
 
         <div className="navbar-user">
           <span className="navbar-user-name" title={String(user.name || '').length > 11 ? user.name : user.email}>
-            {shortName(user.name)}
+            {user.name}
             {user.isAdmin && <span className="navbar-admin-badge">Admin</span>}
           </span>
           <form action="/api/auth/logout" method="post">

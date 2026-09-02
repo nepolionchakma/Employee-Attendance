@@ -448,9 +448,6 @@ export default function AdminClient({ user }: { user: AdminClientUser }) {
         )
       ) : isRaw ? (
         <>
-          <p style={{ fontSize: 13, color: 'var(--text)', marginBottom: 8 }}>
-            Showing raw data for <strong>{grid.tab}</strong> — edit cells, then press <strong>Save</strong>.
-          </p>
           {(() => {
             const values = grid.values || []
             if (values.length === 0)
@@ -463,25 +460,37 @@ export default function AdminClient({ user }: { user: AdminClientUser }) {
                 </div>
               )
             const maxCols = Math.max(0, ...values.map((r) => (r || []).length))
+            const headerRow = values[0] || []
+            const dataRows = values.slice(1)
             return (
               <div className="admin-table-wrap">
                 <table className="admin-table admin-raw-table">
+                  <thead>
+                    <tr>
+                      <th className="admin-raw-row-num">#</th>
+                      {Array.from({ length: maxCols }).map((_, cIdx) => (
+                        <th key={cIdx} className="admin-raw-header">
+                          {headerRow[cIdx] || String.fromCharCode(65 + cIdx)}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
                   <tbody>
-                    {values.map((row, rIdx) => (
+                    {dataRows.map((row, rIdx) => (
                       <tr key={rIdx}>
+                        <td className="admin-raw-row-num">{rIdx + 1}</td>
                         {Array.from({ length: maxCols }).map((_, cIdx) => {
                           const cell = row?.[cIdx] ?? ''
-                          const key = `${rIdx}::${cIdx}`
+                          const key = `${rIdx + 1}::${cIdx}`
                           const isDirty = key in pendingRaw
-                          const isHeader = rIdx === 0
                           return (
-                            <td key={cIdx} className={`${isHeader ? 'admin-raw-header' : ''}${isDirty ? ' admin-cell-dirty' : ''}`}>
+                            <td key={cIdx} className={isDirty ? 'admin-cell-dirty' : ''}>
                               <input
                                 className="admin-raw-input"
                                 value={cell || ''}
-                                onChange={(e) => handleRawEdit(rIdx, cIdx, e.target.value)}
+                                onChange={(e) => handleRawEdit(rIdx + 1, cIdx, e.target.value)}
                                 disabled={saving}
-                                aria-label={`Row ${rIdx + 1} Col ${cIdx + 1}`}
+                                aria-label={`Row ${rIdx + 2} Col ${cIdx + 1}`}
                               />
                               {isDirty && <span className="admin-dirty-dot" title="Unsaved" />}
                             </td>
@@ -495,7 +504,7 @@ export default function AdminClient({ user }: { user: AdminClientUser }) {
             )
           })()}
           <p style={{ marginTop: 12, fontSize: 13, color: 'var(--text)' }}>
-            Edits are local until you press Save. Press Discard to revert.
+            Edit any cell, then press <strong>Save</strong> to write to Google Sheets.
           </p>
         </>
       ) : (

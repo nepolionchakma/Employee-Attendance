@@ -62,9 +62,9 @@ export default function AttendanceForm({ employeeName, employeeEmail }: Attendan
         setCheck(
           data?.attended
             ? {
-                kind: 'already',
-                message: `${employeeName} already attended today (${data.status})`,
-              }
+              kind: 'already',
+              message: `${employeeName} already attended today (${data.status})`,
+            }
             : { kind: 'ready', message: 'Not marked yet — you can submit.' },
         )
       })
@@ -123,7 +123,7 @@ export default function AttendanceForm({ employeeName, employeeEmail }: Attendan
         <form onSubmit={handleSubmit} className="attendance-form">
           <label htmlFor="employee">Employee</label>
           <p id="employee" className="attendance-employee" title={String(employeeName || '').length > 11 ? employeeName : undefined}>
-            {shortName(employeeName)}
+            {employeeName}
             {employeeEmail && <span style={{ display: 'block', fontSize: 12, fontWeight: 400, color: 'var(--text)', marginTop: 2 }}>{employeeEmail}</span>}
           </p>
 
