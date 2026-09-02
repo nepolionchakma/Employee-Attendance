@@ -1161,15 +1161,19 @@ export async function getAdminGrid(tab: string) {
     const d = Number(raw)
     if (!Number.isInteger(d)) continue
     const values: Record<string, string> = {}
+    const timeValues: Record<string, string> = {}
+    const locationValues: Record<string, string> = {}
     for (const emp of employees) {
       const c = findEmployeeColumn(rows, headerRow, emp)
       if (is3col) {
         values[emp] = String(rows[i][c] ?? '').trim()
+        timeValues[emp] = String(rows[i][c + 1] ?? '').trim()
+        locationValues[emp] = String(rows[i][c + 2] ?? '').trim()
       } else {
         values[emp] = String(rows[i][c] ?? '').trim()
       }
     }
-    days.push({ date: raw, day: String(rows[i][1] ?? '').trim(), values })
+    days.push({ date: raw, day: String(rows[i][1] ?? '').trim(), values, timeValues, locationValues })
   }
   let absentDays: Record<string, number> = {}
   for (let i = headerRow + 1; i < rows.length; i++) {

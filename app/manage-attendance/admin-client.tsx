@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback, useMemo } from 'react'
+import React, { useEffect, useState, useCallback, useMemo } from 'react'
 import { shortName } from '@/lib/utils'
 
 const STATUS_OPTIONS = ['', 'Office', 'Home', 'Absent']
@@ -10,9 +10,8 @@ interface AttendanceGrid {
   tab: string
   tabs: string[]
   employees: string[]
-  days: { date: string; day: string; values: Record<string, string> }[]
+  days: { date: string; day: string; values: Record<string, string>; timeValues: Record<string, string>; locationValues: Record<string, string> }[]
   absentDays: Record<string, number>
-  total: number
 }
 
 interface RawGrid {
@@ -82,8 +81,8 @@ export default function AdminClient({ user }: { user: AdminClientUser }) {
   const [saving, setSaving] = useState(false)
   const [success, setSuccess] = useState('')
 
-  // pending edits: attendance -> { "emp::date": { employeeName, day, status } }
-  const [pendingAttendance, setPendingAttendance] = useState<Record<string, { employeeName: string; day: string; status: string }>>({})
+  // pending edits: attendance -> { "emp::date": { employeeName, day, status, time, location } }
+  const [pendingAttendance, setPendingAttendance] = useState<Record<string, { employeeName: string; day: string; status: string; time?: string; location?: string }>>({})
   // raw -> { "row::col": { row, col, value } }
   const [pendingRaw, setPendingRaw] = useState<Record<string, { row: number; col: number; value: string }>>({})
 
@@ -126,18 +125,25 @@ export default function AdminClient({ user }: { user: AdminClientUser }) {
     fetchData(t)
   }
 
-  const handleAttendanceEdit = (employeeName: string, date: string, nextStatus: string) => {
+  const handleAttendanceEdit = (employeeName: string, date: string, field: string, value: string) => {
     setSuccess('')
     setError('')
     setGrid((prev) => {
       if (!prev || prev.kind !== 'attendance') return prev
-      const days = prev.days.map((d) =>
-        d.date === date ? { ...d, values: { ...d.values, [employeeName]: nextStatus } } : d,
-      )
+      const days = prev.days.map((d) => {
+        if (d.date !== date) return d
+        if (field === 'status') return { ...d, values: { ...d.values, [employeeName]: value } }
+        if (field === 'time') return { ...d, timeValues: { ...d.timeValues, [employeeName]: value } }
+        if (field === 'location') return { ...d, locationValues: { ...d.locationValues, [employeeName]: value } }
+        return d
+      })
       return { ...prev, days }
     })
     const key = `${employeeName}::${date}`
-    setPendingAttendance((prev) => ({ ...prev, [key]: { employeeName, day: date, status: nextStatus } }))
+    setPendingAttendance((prev) => {
+      const existing = prev[key] || { employeeName, day: date, status: '', time: '', location: '' }
+      return { ...prev, [key]: { ...existing, [field === 'status' ? 'status' : field]: value } }
+    })
   }
 
   const handleRawEdit = (row: number, col: number, value: string) => {
@@ -212,7 +218,7 @@ export default function AdminClient({ user }: { user: AdminClientUser }) {
   return (
     <div className="page admin-page">
       <div className="admin-page-header">
-        <h2>Manage Attendance</h2>
+        <h2>Manage Attendance{grid?.tab ? ` — ${grid.tab}` : ''}</h2>
         <p className="admin-page-subtitle">View and edit any sheet — all changes stay local until you press Save.</p>
       </div>
 
@@ -277,17 +283,26 @@ export default function AdminClient({ user }: { user: AdminClientUser }) {
               <table className="admin-table">
                 <thead>
                   <tr>
-                    <th>Date</th>
-                    <th>Day</th>
+                    <th rowSpan={2}>Date</th>
+                    <th rowSpan={2}>Day</th>
                     {grid.employees.map((emp) => {
                       const display = shortName(emp)
                       const needsTitle = String(emp || '').length > 11
                       return (
-                        <th key={emp} title={needsTitle ? emp : undefined}>
+                        <th key={emp} colSpan={3} className="admin-emp-header" title={needsTitle ? emp : undefined}>
                           {display}
                         </th>
                       )
                     })}
+                  </tr>
+                  <tr>
+                    {grid.employees.map((emp) => (
+                      <React.Fragment key={emp}>
+                        <th className="admin-sub-header">Presence</th>
+                        <th className="admin-sub-header">Time</th>
+                        <th className="admin-sub-header">Location</th>
+                      </React.Fragment>
+                    ))}
                   </tr>
                 </thead>
                 <tbody>
@@ -297,34 +312,55 @@ export default function AdminClient({ user }: { user: AdminClientUser }) {
                       <td className="admin-day">{row.day}</td>
                       {grid.employees.map((emp) => {
                         const val = row.values[emp] || ''
+                        const timeVal = row.timeValues?.[emp] || ''
+                        const locVal = row.locationValues?.[emp] || ''
                         const key = `${emp}::${row.date}`
                         const isDirty = key in pendingAttendance
                         return (
-                          <td key={emp} className={`${statusClass(val)}${isDirty ? ' admin-cell-dirty' : ''}`}>
-                            <select
-                              className="admin-cell-select"
-                              value={val}
-                              onChange={(e) => handleAttendanceEdit(emp, row.date, e.target.value)}
-                              disabled={saving}
-                              aria-label={`${emp} on ${row.date}`}
-                            >
-                              {STATUS_OPTIONS.map((opt) => (
-                                <option key={opt} value={opt}>
-                                  {opt || '—'}
-                                </option>
-                              ))}
-                            </select>
-                            {isDirty && <span className="admin-dirty-dot" title="Unsaved" />}
-                          </td>
+                          <React.Fragment key={emp}>
+                            <td className={`${statusClass(val)}${isDirty ? ' admin-cell-dirty' : ''}`}>
+                              <select
+                                className="admin-cell-select"
+                                value={val}
+                                onChange={(e) => handleAttendanceEdit(emp, row.date, 'status', e.target.value)}
+                                disabled={saving}
+                                aria-label={`${emp} presence on ${row.date}`}
+                              >
+                                {STATUS_OPTIONS.map((opt) => (
+                                  <option key={opt} value={opt}>
+                                    {opt || '—'}
+                                  </option>
+                                ))}
+                              </select>
+                            </td>
+                            <td className={isDirty ? 'admin-cell-dirty' : ''}>
+                              <input
+                                className="admin-time-input"
+                                value={timeVal}
+                                onChange={(e) => handleAttendanceEdit(emp, row.date, 'time', e.target.value)}
+                                disabled={saving}
+                                aria-label={`${emp} time on ${row.date}`}
+                              />
+                            </td>
+                            <td className={isDirty ? 'admin-cell-dirty' : ''}>
+                              <input
+                                className="admin-loc-input"
+                                value={locVal}
+                                onChange={(e) => handleAttendanceEdit(emp, row.date, 'location', e.target.value)}
+                                disabled={saving}
+                                aria-label={`${emp} location on ${row.date}`}
+                              />
+                              {isDirty && <span className="admin-dirty-dot" title="Unsaved" />}
+                            </td>
+                          </React.Fragment>
                         )
                       })}
                     </tr>
                   ))}
                   <tr className="admin-summary-row">
-                    <td>Absent Days</td>
-                    <td />
+                    <td colSpan={2}>Absent Days</td>
                     {grid.employees.map((emp) => (
-                      <td key={emp}>{grid.absentDays?.[emp] ?? 0}</td>
+                      <td key={emp} colSpan={3}>{grid.absentDays?.[emp] ?? 0}</td>
                     ))}
                   </tr>
                 </tbody>

@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import React, { useEffect, useState, useCallback, useMemo } from 'react'
 
 interface Member {
   name: string
@@ -9,11 +9,31 @@ interface Member {
   role: string
 }
 
-interface MemberForm {
+interface PendingEdit {
   name: string
   email: string
   phone: string
   role: string
+}
+
+const ROLE_OPTIONS = ['employee', 'admin']
+
+function SaveIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+      <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2Z" />
+      <path d="M17 21v-8H7v8" />
+      <path d="M7 3v5h8" />
+    </svg>
+  )
+}
+function RefreshIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+      <path d="M21 12a9 9 0 1 1-2.6-6.4" />
+      <path d="M21 3v7h-7" />
+    </svg>
+  )
 }
 
 export default function MembersClient() {
@@ -21,9 +41,14 @@ export default function MembersClient() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
-  const [editing, setEditing] = useState<number | 'new' | null>(null)
-  const [form, setForm] = useState<MemberForm>({ name: '', email: '', phone: '', role: 'employee' })
   const [saving, setSaving] = useState(false)
+  const [showAddRow, setShowAddRow] = useState(false)
+  const [newRow, setNewRow] = useState<PendingEdit>({ name: '', email: '', phone: '', role: 'employee' })
+
+  const [pendingEdits, setPendingEdits] = useState<Record<number, PendingEdit>>({})
+  const [pendingAdds, setPendingAdds] = useState<PendingEdit[]>([])
+
+  const pendingCount = useMemo(() => Object.keys(pendingEdits).length + pendingAdds.length, [pendingEdits, pendingAdds])
 
   const fetchMembers = useCallback(async () => {
     setLoading(true)
@@ -33,6 +58,9 @@ export default function MembersClient() {
       const data = await res.json()
       if (!res.ok) throw new Error(data.message || 'Failed to load')
       setMembers(data.members || [])
+      setPendingEdits({})
+      setPendingAdds([])
+      setShowAddRow(false)
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -41,59 +69,81 @@ export default function MembersClient() {
   }, [])
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     void fetchMembers()
   }, [fetchMembers])
 
-  const startAdd = () => {
-    setForm({ name: '', email: '', phone: '', role: 'employee' })
-    setEditing('new')
+  const handleCellEdit = (idx: number, field: keyof PendingEdit, value: string) => {
+    setPendingEdits((prev) => {
+      const existing = prev[idx] || { ...members[idx] }
+      return { ...prev, [idx]: { ...existing, [field]: value } }
+    })
     setError('')
     setSuccess('')
   }
 
-  const startEdit = (idx: number) => {
-    const m = members[idx]
-    setForm({ name: m.name, email: m.email, phone: m.phone || '', role: m.role || 'employee' })
-    setEditing(idx)
+  const handleNewRowEdit = (field: keyof PendingEdit, value: string) => {
+    setNewRow((prev) => ({ ...prev, [field]: value }))
+  }
+
+  const addNewRow = () => {
+    if (!newRow.name.trim() || !newRow.email.includes('@')) {
+      setError('Name and valid email required for new member')
+      return
+    }
+    setPendingAdds((prev) => [...prev, { ...newRow }])
+    setNewRow({ name: '', email: '', phone: '', role: 'employee' })
+    setShowAddRow(false)
     setError('')
     setSuccess('')
   }
 
-  const cancelEdit = () => {
-    setEditing(null)
-    setForm({ name: '', email: '', phone: '', role: 'employee' })
+  const removePendingAdd = (addIdx: number) => {
+    setPendingAdds((prev) => prev.filter((_, i) => i !== addIdx))
+  }
+
+  const cancelEdit = (idx: number) => {
+    setPendingEdits((prev) => {
+      const next = { ...prev }
+      delete next[idx]
+      return next
+    })
   }
 
   const handleSave = async () => {
-    if (!form.email.includes('@') || !form.name.trim()) {
-      setError('Name and valid Gmail required')
-      return
-    }
+    if (pendingCount === 0 || saving) return
     setSaving(true)
     setError('')
     setSuccess('')
     try {
-      if (editing === 'new') {
-        const res = await fetch('/api/admin/members', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(form),
-        })
-        const data = await res.json().catch(() => ({}))
-        if (!res.ok) throw new Error(data.message || 'Add failed')
-        setSuccess('Member added')
-      } else {
+      let updated = 0
+      for (const [idxStr, edit] of Object.entries(pendingEdits)) {
+        const idx = Number(idxStr)
         const res = await fetch('/api/admin/members', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ index: editing, ...form }),
+          body: JSON.stringify({ index: idx, ...edit }),
         })
-        const data = await res.json().catch(() => ({}))
-        if (!res.ok) throw new Error(data.message || 'Update failed')
-        setSuccess('Member updated')
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}))
+          throw new Error(data.message || `Failed to update row ${idx + 1}`)
+        }
+        updated++
       }
-      setEditing(null)
+      for (const add of pendingAdds) {
+        const res = await fetch('/api/admin/members', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(add),
+        })
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}))
+          throw new Error(data.message || 'Failed to add member')
+        }
+        updated++
+      }
+      setSuccess(`Saved ${updated} change${updated > 1 ? 's' : ''}`)
+      setPendingEdits({})
+      setPendingAdds([])
       await fetchMembers()
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
@@ -117,7 +167,16 @@ export default function MembersClient() {
     }
   }
 
-  if (loading) {
+  const discardAll = () => {
+    setPendingEdits({})
+    setPendingAdds([])
+    setShowAddRow(false)
+    setNewRow({ name: '', email: '', phone: '', role: 'employee' })
+    setError('')
+    setSuccess('')
+  }
+
+  if (loading && members.length === 0) {
     return (
       <div className="page admin-page">
         <p>Loading…</p>
@@ -125,12 +184,17 @@ export default function MembersClient() {
     )
   }
 
+  const displayMembers = members.map((m, idx) => {
+    const edit = pendingEdits[idx]
+    return edit ? { ...m, ...edit, _dirty: true } : { ...m, _dirty: false }
+  })
+
   return (
     <div className="page admin-page">
       <div className="admin-page-header">
         <h2>Employees / Members</h2>
         <p className="admin-page-subtitle">
-          Manage full name, Gmail, phone, role. Data is stored in the <strong>Employees</strong> sheet — edit here or directly in Google Sheets (dynamic, no database).
+          Edit inline — changes stay local until you press <strong>Save</strong>. Data is in the <strong>Employees</strong> sheet.
         </p>
       </div>
 
@@ -139,73 +203,26 @@ export default function MembersClient() {
 
       <div className="admin-toolbar">
         <div className="admin-toolbar-left">
-          <span style={{ fontSize: 14, fontWeight: 600 }}>Total: {members.length}</span>
+          <span style={{ fontSize: 14, fontWeight: 600 }}>
+            Total: {members.length + pendingAdds.length}
+            {pendingCount > 0 && <span className="admin-pending-badge" style={{ marginLeft: 8 }}><span className="admin-pending-dot" /> {pendingCount} unsaved</span>}
+          </span>
         </div>
         <div className="admin-toolbar-right">
-          <button className="btn" onClick={fetchMembers} disabled={loading}>
-            Refresh
+          <button className="btn btn-icon" onClick={fetchMembers} disabled={loading || saving} title="Refresh">
+            <RefreshIcon /> {loading ? 'Loading…' : 'Refresh'}
           </button>
-          <button className="btn primary btn-icon" onClick={startAdd} disabled={editing !== null}>
-            + Add Member
+          <button className="btn" onClick={discardAll} disabled={pendingCount === 0 || saving}>
+            Discard
+          </button>
+          <button className="btn primary btn-icon" onClick={handleSave} disabled={pendingCount === 0 || saving}>
+            <SaveIcon /> {saving ? 'Saving…' : `Save${pendingCount ? ` · ${pendingCount}` : ''}`}
+          </button>
+          <button className="btn primary btn-icon" onClick={() => { setShowAddRow(true); setError(''); setSuccess('') }} disabled={showAddRow || saving}>
+            + Add New
           </button>
         </div>
       </div>
-
-      {editing !== null && (
-        <div className="card" style={{ marginBottom: 16 }}>
-          <h3 style={{ marginTop: 0 }}>{editing === 'new' ? 'Add Member' : 'Edit Member'}</h3>
-          <div style={{ display: 'grid', gap: 12, maxWidth: 480 }}>
-            <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 14, fontWeight: 600 }}>
-              Full Name
-              <input
-                className="attendance-select"
-                value={form.name}
-                onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-                placeholder="e.g. Nepolion Chakma"
-              />
-            </label>
-            <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 14, fontWeight: 600 }}>
-              Gmail
-              <input
-                className="attendance-select"
-                type="email"
-                value={form.email}
-                onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
-                placeholder="name@gmail.com"
-                disabled={editing !== 'new'}
-              />
-            </label>
-            <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 14, fontWeight: 600 }}>
-              Phone
-              <input
-                className="attendance-select"
-                value={form.phone}
-                onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
-                placeholder="017..."
-              />
-            </label>
-            <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 14, fontWeight: 600 }}>
-              Role
-              <select
-                className="attendance-select"
-                value={form.role}
-                onChange={(e) => setForm((f) => ({ ...f, role: e.target.value }))}
-              >
-                <option value="employee">employee</option>
-                <option value="admin">admin</option>
-              </select>
-            </label>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button className="btn primary" onClick={handleSave} disabled={saving}>
-                {saving ? 'Saving…' : editing === 'new' ? 'Add' : 'Update'}
-              </button>
-              <button className="btn" onClick={cancelEdit} disabled={saving}>
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       <div className="admin-table-wrap">
         <table className="admin-table">
@@ -220,48 +237,97 @@ export default function MembersClient() {
             </tr>
           </thead>
           <tbody>
-            {members.length === 0 ? (
+            {displayMembers.length === 0 && pendingAdds.length === 0 && !showAddRow ? (
               <tr>
                 <td colSpan={6} style={{ textAlign: 'center', padding: 20, color: 'var(--text)' }}>
-                  No members yet — add from above or enter directly in the Employees sheet.
+                  No members yet — click <strong>+ Add New</strong> to create one.
                 </td>
               </tr>
             ) : (
-              members.map((m, idx) => (
-                <tr key={m.email + idx}>
-                  <td>{idx + 1}</td>
-                  <td style={{ fontWeight: 600, color: 'var(--text-h)' }}>{m.name}</td>
-                  <td>{m.email}</td>
-                  <td>{m.phone || '—'}</td>
-                  <td>
-                    <span className={`home-you-badge`} style={{ background: m.role === 'admin' ? 'var(--accent)' : '#64748b' }}>
-                      {m.role}
-                    </span>
-                  </td>
-                  <td>
-                    <div style={{ display: 'flex', gap: 6 }}>
-                      <button className="btn" style={{ padding: '6px 10px', fontSize: 13 }} onClick={() => startEdit(idx)}>
-                        Edit
-                      </button>
-                      <button
-                        className="btn"
-                        style={{ padding: '6px 10px', fontSize: 13, color: '#e5484d', borderColor: '#e5484d' }}
-                        onClick={() => handleDelete(idx)}
-                      >
-                        Delete
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))
+              <>
+                {showAddRow && (
+                  <tr className="admin-row-new">
+                    <td>1</td>
+                    <td>
+                      <input className="admin-inline-input" value={newRow.name} onChange={(e) => handleNewRowEdit('name', e.target.value)} placeholder="Full name" autoFocus />
+                    </td>
+                    <td>
+                      <input className="admin-inline-input" value={newRow.email} onChange={(e) => handleNewRowEdit('email', e.target.value)} placeholder="name@gmail.com" />
+                    </td>
+                    <td>
+                      <input className="admin-inline-input" value={newRow.phone} onChange={(e) => handleNewRowEdit('phone', e.target.value)} placeholder="017..." />
+                    </td>
+                    <td>
+                      <select className="admin-cell-select" value={newRow.role} onChange={(e) => handleNewRowEdit('role', e.target.value)}>
+                        {ROLE_OPTIONS.map((r) => <option key={r} value={r}>{r}</option>)}
+                      </select>
+                    </td>
+                    <td>
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        <button className="btn primary" style={{ padding: '6px 10px', fontSize: 13 }} onClick={addNewRow}>Add</button>
+                        <button className="btn" style={{ padding: '6px 10px', fontSize: 13 }} onClick={() => setShowAddRow(false)}>Cancel</button>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+
+                {displayMembers.map((m, idx) => (
+                  <tr key={m.email + idx} className={m._dirty ? 'admin-row-dirty' : ''}>
+                    <td>{showAddRow ? idx + 2 : idx + 1}</td>
+                    <td>
+                      <input className="admin-inline-input" value={m.name} onChange={(e) => handleCellEdit(idx, 'name', e.target.value)} disabled={saving} />
+                    </td>
+                    <td>
+                      <input className="admin-inline-input" value={m.email} onChange={(e) => handleCellEdit(idx, 'email', e.target.value)} disabled={saving} />
+                    </td>
+                    <td>
+                      <input className="admin-inline-input" value={m.phone || ''} onChange={(e) => handleCellEdit(idx, 'phone', e.target.value)} disabled={saving} placeholder="—" />
+                    </td>
+                    <td>
+                      <select className="admin-cell-select" value={m.role} onChange={(e) => handleCellEdit(idx, 'role', e.target.value)} disabled={saving}>
+                        {ROLE_OPTIONS.map((r) => <option key={r} value={r}>{r}</option>)}
+                      </select>
+                    </td>
+                    <td>
+                      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                        {m._dirty && <span className="admin-dirty-dot" title="Unsaved" />}
+                        <button className="btn" style={{ padding: '6px 10px', fontSize: 13, color: '#e5484d', borderColor: '#e5484d' }} onClick={() => handleDelete(idx)} disabled={saving}>Delete</button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+
+                {pendingAdds.map((add, addIdx) => (
+                  <tr key={`pending-${addIdx}`} className="admin-row-new">
+                    <td>+</td>
+                    <td>
+                      <input className="admin-inline-input" value={add.name} placeholder="Full name" disabled={saving}
+                        onChange={(e) => { const u = [...pendingAdds]; u[addIdx] = { ...u[addIdx], name: e.target.value }; setPendingAdds(u) }} />
+                    </td>
+                    <td>
+                      <input className="admin-inline-input" value={add.email} placeholder="name@gmail.com" disabled={saving}
+                        onChange={(e) => { const u = [...pendingAdds]; u[addIdx] = { ...u[addIdx], email: e.target.value }; setPendingAdds(u) }} />
+                    </td>
+                    <td>
+                      <input className="admin-inline-input" value={add.phone} placeholder="017..." disabled={saving}
+                        onChange={(e) => { const u = [...pendingAdds]; u[addIdx] = { ...u[addIdx], phone: e.target.value }; setPendingAdds(u) }} />
+                    </td>
+                    <td>
+                      <select className="admin-cell-select" value={add.role} disabled={saving}
+                        onChange={(e) => { const u = [...pendingAdds]; u[addIdx] = { ...u[addIdx], role: e.target.value }; setPendingAdds(u) }}>
+                        {ROLE_OPTIONS.map((r) => <option key={r} value={r}>{r}</option>)}
+                      </select>
+                    </td>
+                    <td>
+                      <button className="btn" style={{ padding: '6px 10px', fontSize: 13, color: '#e5484d', borderColor: '#e5484d' }} onClick={() => removePendingAdd(addIdx)} disabled={saving}>Remove</button>
+                    </td>
+                  </tr>
+                ))}
+              </>
             )}
           </tbody>
         </table>
       </div>
-
-      <p style={{ marginTop: 12, fontSize: 13, color: 'var(--text)' }}>
-        Tip: You can also edit the <strong>Employees</strong> sheet directly in Google Sheets — the app always reads the latest (cached 60s). Add `Full Name`, `Gmail`, `Phone`, `Role` columns.
-      </p>
     </div>
   )
 }

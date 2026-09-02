@@ -39,7 +39,6 @@ export default function HomeSummaryTable({ stats, user }: { stats: StatRow[]; us
               <th>Employee</th>
               <th>Present</th>
               <th>Absent</th>
-              <th>Total</th>
             </tr>
           </thead>
           <tbody>
@@ -59,7 +58,6 @@ export default function HomeSummaryTable({ stats, user }: { stats: StatRow[]; us
                   </td>
                   <td className="home-present">{row.present}</td>
                   <td className="home-absent">{row.absent}</td>
-                  <td className="home-total">{row.total}</td>
                 </tr>
               )
             })}
