@@ -1,6 +1,6 @@
-// @ts-nocheck
 import { Geist, Geist_Mono } from 'next/font/google'
 import './globals.css'
+import type { ReactNode } from 'react'
 
 const geistSans = Geist({
   variable: '--font-geist-sans',
@@ -14,10 +14,10 @@ const geistMono = Geist_Mono({
 
 export const metadata = {
   title: 'Attendance',
-  description: 'Mark today\'s attendance',
+  description: "Mark today's attendance",
 }
 
-export default function RootLayout({ children }) {
+export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en" className={`${geistSans.variable} ${geistMono.variable}`}>
       <body>{children}</body>

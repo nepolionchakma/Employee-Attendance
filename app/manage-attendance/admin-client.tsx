@@ -1,21 +1,84 @@
-// @ts-nocheck
 'use client'
 
-import { useEffect, useState, useCallback, useMemo } from 'react'
+import React, { useEffect, useState, useCallback, useMemo } from 'react'
+import { shortName } from '@/lib/utils'
 
 const STATUS_OPTIONS = ['', 'Office', 'Home', 'Absent']
 
-function statusClass(s) {
-  const v = String(s || '').trim()
-  if (v === 'Office') return 'admin-cell-office'
-  if (v === 'Home') return 'admin-cell-home'
-  if (v === 'Absent') return 'admin-cell-absent'
-  return 'admin-cell-empty'
+function formatSystemTime() {
+  return new Intl.DateTimeFormat('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+    timeZone: 'Asia/Dhaka',
+  }).format(new Date())
 }
 
-function shortName(name) {
-  const n = String(name || '')
-  return n.length > 11 ? n.slice(0, 11) + '..' : n
+function previewTime(status: string) {
+  if (status === 'Absent') return '12:00 AM'
+  if (status === 'Office' || status === 'Home') return formatSystemTime()
+  return ''
+}
+
+function getRealTimeLocation(): Promise<string> {
+  return new Promise((resolve) => {
+    if (!('geolocation' in navigator)) {
+      resolve('N/A')
+      return
+    }
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        try {
+          const { latitude, longitude } = pos.coords
+          const res = await fetch(
+            `https://nominatim.openstreetmap.org/reverse?lat=${latitude}&lon=${longitude}&format=json`,
+          )
+          const data = await res.json()
+          const addr = data.address || {}
+          const road = addr.road || addr.county || ''
+          const district = addr.state_district || ''
+          resolve([road, district].filter(Boolean).join(', ') || `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`)
+        } catch {
+          resolve('N/A')
+        }
+      },
+      () => resolve('N/A'),
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 },
+    )
+  })
+}
+
+interface AttendanceGrid {
+  kind: 'attendance'
+  tab: string
+  tabs: string[]
+  employees: string[]
+  days: { date: string; day: string; values: Record<string, string>; locationValues: Record<string, string> }[]
+  absentDays: Record<string, number>
+}
+
+interface RawGrid {
+  kind: 'raw'
+  tab: string
+  tabs: string[]
+  values: string[][]
+}
+
+type GridData = AttendanceGrid | RawGrid | null
+
+interface AdminClientUser {
+  name: string
+  email: string
+  isAdmin: boolean
+}
+
+function statusClass(s: string) {
+  const v = String(s || '').trim()
+  if (v === 'Office' || v.startsWith('Office - ')) return 'admin-cell-office'
+  if (v === 'Home' || v.startsWith('Home - ')) return 'admin-cell-home'
+  if (v === 'Absent' || v.startsWith('Absent - ')) return 'admin-cell-absent'
+  if (v === 'Holiday') return 'admin-cell-office'
+  return 'admin-cell-empty'
 }
 
 function RefreshIcon() {
@@ -53,19 +116,19 @@ function SheetIcon() {
   )
 }
 
-export default function AdminClient({ user }) {
+export default function AdminClient({ user }: { user: AdminClientUser }) {
   const [tab, setTab] = useState('')
-  const [tabs, setTabs] = useState([])
-  const [grid, setGrid] = useState(null)
+  const [tabs, setTabs] = useState<string[]>([])
+  const [grid, setGrid] = useState<GridData>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
   const [success, setSuccess] = useState('')
 
-  // pending edits: attendance -> { "emp::date": { employeeName, day, status } }
-  const [pendingAttendance, setPendingAttendance] = useState({})
+  // pending edits: attendance -> { "emp::date": { employeeName, day, status, location, time } }
+  const [pendingAttendance, setPendingAttendance] = useState<Record<string, { employeeName: string; day: string; status: string; location?: string; time?: string }>>({})
   // raw -> { "row::col": { row, col, value } }
-  const [pendingRaw, setPendingRaw] = useState({})
+  const [pendingRaw, setPendingRaw] = useState<Record<string, { row: number; col: number; value: string }>>({})
 
   const pendingAttendanceCount = useMemo(() => Object.keys(pendingAttendance).length, [pendingAttendance])
   const pendingRawCount = useMemo(() => Object.keys(pendingRaw).length, [pendingRaw])
@@ -76,7 +139,7 @@ export default function AdminClient({ user }) {
     setPendingRaw({})
   }, [])
 
-  const fetchData = useCallback(async (tabName) => {
+  const fetchData = useCallback(async (tabName: string) => {
     setLoading(true)
     setError('')
     setSuccess('')
@@ -90,7 +153,7 @@ export default function AdminClient({ user }) {
       if (!tabName) setTab(data.tab)
       clearPending()
     } catch (e) {
-      setError(e.message)
+      setError(e instanceof Error ? e.message : String(e))
     } finally {
       setLoading(false)
     }
@@ -101,35 +164,45 @@ export default function AdminClient({ user }) {
     void fetchData('')
   }, [fetchData])
 
-  const handleTabChange = (t) => {
+  const handleTabChange = (t: string) => {
     setTab(t)
     fetchData(t)
   }
 
-  const handleAttendanceEdit = (employeeName, date, nextStatus) => {
+  const handleAttendanceEdit = (employeeName: string, date: string, field: string, value: string) => {
     setSuccess('')
     setError('')
     setGrid((prev) => {
       if (!prev || prev.kind !== 'attendance') return prev
-      const days = prev.days.map((d) =>
-        d.date === date ? { ...d, values: { ...d.values, [employeeName]: nextStatus } } : d,
-      )
+      const days = prev.days.map((d) => {
+        if (d.date !== date) return d
+        if (field === 'status') return { ...d, values: { ...d.values, [employeeName]: value } }
+        if (field === 'location') return { ...d, locationValues: { ...d.locationValues, [employeeName]: value } }
+        return d
+      })
       return { ...prev, days }
     })
     const key = `${employeeName}::${date}`
-    setPendingAttendance((prev) => ({ ...prev, [key]: { employeeName, day: date, status: nextStatus } }))
+    setPendingAttendance((prev) => {
+      const existing = prev[key] || { employeeName, day: date, status: '', location: '', time: '' }
+      if (field === 'status') {
+        // Auto-fill time when status changes: system time for Office/Home, 12:00 AM for Absent
+        const autoTime = value === 'Absent' ? '12:00 AM' : value ? formatSystemTime() : ''
+        return { ...prev, [key]: { ...existing, status: value, time: autoTime } }
+      }
+      return { ...prev, [key]: { ...existing, [field]: value } }
+    })
   }
 
-  const handleRawEdit = (row, col, value) => {
+  const handleRawEdit = (row: number, col: number, value: string) => {
     setSuccess('')
     setError('')
     setGrid((prev) => {
       if (!prev || prev.kind !== 'raw') return prev
       const nextValues = prev.values.map((r) => [...(r || [])])
       while (nextValues.length <= row) nextValues.push([])
-      while ((nextValues[row] || []).length <= col) nextValues[row].push('')
-      nextValues[row][col] = value
-      // ensure maxCols consistency for display, but keep as is
+      while ((nextValues[row] || []).length <= col) nextValues[row]!.push('')
+      nextValues[row]![col] = value
       return { ...prev, values: nextValues }
     })
     const key = `${row}::${col}`
@@ -143,7 +216,13 @@ export default function AdminClient({ user }) {
     setSuccess('')
     try {
       if (grid?.kind === 'attendance') {
-        const updates = Object.values(pendingAttendance)
+        const updates = Object.values(pendingAttendance).map((u) => ({
+          employeeName: u.employeeName,
+          day: u.day,
+          status: u.status,
+          time: u.time || '',
+          location: u.location || '',
+        }))
         const res = await fetch('/api/admin/batch', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -166,7 +245,7 @@ export default function AdminClient({ user }) {
       clearPending()
       await fetchData(tab)
     } catch (e) {
-      setError(e.message)
+      setError(e instanceof Error ? e.message : String(e))
     } finally {
       setSaving(false)
     }
@@ -193,7 +272,7 @@ export default function AdminClient({ user }) {
   return (
     <div className="page admin-page">
       <div className="admin-page-header">
-        <h2>Manage Attendance</h2>
+        <h2>Manage Attendance{grid?.tab ? ` — ${grid.tab}` : ''}</h2>
         <p className="admin-page-subtitle">View and edit any sheet — all changes stay local until you press Save.</p>
       </div>
 
@@ -258,61 +337,105 @@ export default function AdminClient({ user }) {
               <table className="admin-table">
                 <thead>
                   <tr>
-                    <th>Date</th>
-                    <th>Day</th>
+                    <th rowSpan={2}>Date</th>
+                    <th rowSpan={2}>Day</th>
                     {grid.employees.map((emp) => {
                       const display = shortName(emp)
                       const needsTitle = String(emp || '').length > 11
                       return (
-                        <th key={emp} title={needsTitle ? emp : undefined}>
+                        <th key={emp} colSpan={2} className="admin-emp-header" title={needsTitle ? emp : undefined}>
                           {display}
                         </th>
                       )
                     })}
                   </tr>
+                  <tr>
+                    {grid.employees.map((emp) => (
+                      <React.Fragment key={emp}>
+                        <th className="admin-sub-header">Presence</th>
+                        <th className="admin-sub-header">Location</th>
+                      </React.Fragment>
+                    ))}
+                  </tr>
                 </thead>
                 <tbody>
                   {grid.days.map((row) => (
-                    <tr key={row.date}>
+                    <tr key={row.date} className={row.day === 'Fri' ? 'admin-row-friday' : ''}>
                       <td className="admin-date">{row.date}</td>
                       <td className="admin-day">{row.day}</td>
                       {grid.employees.map((emp) => {
                         const val = row.values[emp] || ''
+                        const origLocVal = row.locationValues?.[emp] || ''
                         const key = `${emp}::${row.date}`
                         const isDirty = key in pendingAttendance
+                        // Extract status from merged 'Status - Time' format
+                        const dashIdx = val.lastIndexOf(' - ')
+                        const statusVal = dashIdx !== -1 ? val.substring(0, dashIdx).trim() : val
+                        // Extract time from merged 'Status - Time' format
+                        const origTime = dashIdx !== -1 ? val.substring(dashIdx + 3).trim() : ''
+                        const displayStatus = isDirty ? (pendingAttendance[key]?.status ?? statusVal) : statusVal
+                        const currentTime = isDirty ? (pendingAttendance[key]?.time ?? '') : origTime
+                        const displayLoc = isDirty ? (pendingAttendance[key]?.location ?? origLocVal) : origLocVal
+
                         return (
-                          <td key={emp} className={`${statusClass(val)}${isDirty ? ' admin-cell-dirty' : ''}`}>
-                            <select
-                              className="admin-cell-select"
-                              value={val}
-                              onChange={(e) => handleAttendanceEdit(emp, row.date, e.target.value)}
-                              disabled={saving}
-                              aria-label={`${emp} on ${row.date}`}
-                            >
-                              {STATUS_OPTIONS.map((opt) => (
-                                <option key={opt} value={opt}>
-                                  {opt || '—'}
-                                </option>
-                              ))}
-                            </select>
-                            {isDirty && <span className="admin-dirty-dot" title="Unsaved" />}
-                          </td>
+                          <React.Fragment key={emp}>
+                            <td className={`${statusClass(displayStatus)}${isDirty ? ' admin-cell-dirty' : ''}`}>
+                              <select
+                                className="admin-cell-select"
+                                value={displayStatus}
+                                onChange={async (e) => {
+                                  const newStatus = e.target.value
+                                  handleAttendanceEdit(emp, row.date, 'status', newStatus)
+                                  // Fetch real-time GPS location for Office/Home
+                                  if (newStatus === 'Office' || newStatus === 'Home') {
+                                    const loc = await getRealTimeLocation()
+                                    handleAttendanceEdit(emp, row.date, 'location', loc)
+                                  } else if (newStatus === 'Absent') {
+                                    handleAttendanceEdit(emp, row.date, 'location', 'N/A')
+                                  } else {
+                                    handleAttendanceEdit(emp, row.date, 'location', '')
+                                  }
+                                }}
+                                disabled={saving}
+                                aria-label={`${emp} presence on ${row.date}`}
+                              >
+                                {STATUS_OPTIONS.map((opt) => (
+                                  <option key={opt} value={opt}>
+                                    {opt || '—'}
+                                  </option>
+                                ))}
+                              </select>
+                              {displayStatus && (
+                                <input
+                                  className="admin-time-input"
+                                  type="text"
+                                  value={currentTime}
+                                  placeholder="time"
+                                  onChange={(e) => handleAttendanceEdit(emp, row.date, 'time', e.target.value)}
+                                  disabled={saving}
+                                  aria-label={`${emp} time on ${row.date}`}
+                                />
+                              )}
+                            </td>
+                            <td className={isDirty ? ' admin-cell-dirty' : ''}>
+                              <input
+                                className="admin-loc-input"
+                                value={displayLoc}
+                                onChange={(e) => handleAttendanceEdit(emp, row.date, 'location', e.target.value)}
+                                disabled={saving}
+                                aria-label={`${emp} location on ${row.date}`}
+                              />
+                              {isDirty && <span className="admin-dirty-dot" title="Unsaved" />}
+                            </td>
+                          </React.Fragment>
                         )
                       })}
                     </tr>
                   ))}
                   <tr className="admin-summary-row">
-                    <td>Absent Days</td>
-                    <td />
+                    <td colSpan={2}>Absent Days</td>
                     {grid.employees.map((emp) => (
-                      <td key={emp}>{grid.absentDays?.[emp] ?? 0}</td>
-                    ))}
-                  </tr>
-                  <tr className="admin-summary-row admin-total-row">
-                    <td>Total</td>
-                    <td>{grid.total ?? 0}</td>
-                    {grid.employees.map((emp) => (
-                      <td key={emp} />
+                      <td key={emp} colSpan={2}>{grid.absentDays?.[emp] ?? 0}</td>
                     ))}
                   </tr>
                 </tbody>
@@ -325,9 +448,6 @@ export default function AdminClient({ user }) {
         )
       ) : isRaw ? (
         <>
-          <p style={{ fontSize: 13, color: 'var(--text)', marginBottom: 8 }}>
-            Showing raw data for <strong>{grid.tab}</strong> — edit cells, then press <strong>Save</strong>.
-          </p>
           {(() => {
             const values = grid.values || []
             if (values.length === 0)
@@ -340,25 +460,37 @@ export default function AdminClient({ user }) {
                 </div>
               )
             const maxCols = Math.max(0, ...values.map((r) => (r || []).length))
+            const headerRow = values[0] || []
+            const dataRows = values.slice(1)
             return (
               <div className="admin-table-wrap">
                 <table className="admin-table admin-raw-table">
+                  <thead>
+                    <tr>
+                      <th className="admin-raw-row-num">#</th>
+                      {Array.from({ length: maxCols }).map((_, cIdx) => (
+                        <th key={cIdx} className="admin-raw-header">
+                          {headerRow[cIdx] || String.fromCharCode(65 + cIdx)}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
                   <tbody>
-                    {values.map((row, rIdx) => (
+                    {dataRows.map((row, rIdx) => (
                       <tr key={rIdx}>
+                        <td className="admin-raw-row-num">{rIdx + 1}</td>
                         {Array.from({ length: maxCols }).map((_, cIdx) => {
                           const cell = row?.[cIdx] ?? ''
-                          const key = `${rIdx}::${cIdx}`
+                          const key = `${rIdx + 1}::${cIdx}`
                           const isDirty = key in pendingRaw
-                          const isHeader = rIdx === 0
                           return (
-                            <td key={cIdx} className={`${isHeader ? 'admin-raw-header' : ''}${isDirty ? ' admin-cell-dirty' : ''}`}>
+                            <td key={cIdx} className={isDirty ? 'admin-cell-dirty' : ''}>
                               <input
                                 className="admin-raw-input"
                                 value={cell || ''}
-                                onChange={(e) => handleRawEdit(rIdx, cIdx, e.target.value)}
+                                onChange={(e) => handleRawEdit(rIdx + 1, cIdx, e.target.value)}
                                 disabled={saving}
-                                aria-label={`Row ${rIdx + 1} Col ${cIdx + 1}`}
+                                aria-label={`Row ${rIdx + 2} Col ${cIdx + 1}`}
                               />
                               {isDirty && <span className="admin-dirty-dot" title="Unsaved" />}
                             </td>
@@ -372,7 +504,7 @@ export default function AdminClient({ user }) {
             )
           })()}
           <p style={{ marginTop: 12, fontSize: 13, color: 'var(--text)' }}>
-            Edits are local until you press Save. Press Discard to revert.
+            Edit any cell, then press <strong>Save</strong> to write to Google Sheets.
           </p>
         </>
       ) : (

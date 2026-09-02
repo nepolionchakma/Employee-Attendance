@@ -1,17 +1,52 @@
-// @ts-nocheck
 'use client'
 
 import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
+import { shortName } from '@/lib/utils'
 
-function shortName(name) {
-  const n = String(name || '')
-  return n.length > 11 ? n.slice(0, 11) + '..' : n
+interface AttendanceFormProps {
+  employeeName: string
+  employeeEmail: string
 }
 
-export default function AttendanceForm({ employeeName, employeeEmail }) {
+interface CheckState {
+  kind: 'already' | 'ready' | 'success' | 'error'
+  message: string
+}
+
+function getLocation(): Promise<string> {
+  return new Promise((resolve) => {
+    if (!('geolocation' in navigator)) {
+      resolve('N/A')
+      return
+    }
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        try {
+          const { latitude, longitude } = pos.coords
+          const res = await fetch(
+            `https://nominatim.openstreetmap.org/reverse?lat=${latitude}&lon=${longitude}&format=json`,
+          )
+          const data = await res.json()
+          const addr = data.address || {}
+          const road = addr.road || addr.county || ''
+          const district = addr.state_district || ''
+          resolve([road, district].filter(Boolean).join(', ') || `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`)
+        } catch {
+          resolve('N/A')
+        }
+      },
+      () => resolve('N/A'),
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 },
+    )
+  })
+}
+
+export default function AttendanceForm({ employeeName, employeeEmail }: AttendanceFormProps) {
   const [status, setStatus] = useState('Office')
-  const [check, setCheck] = useState(null)
+  const [check, setCheck] = useState<CheckState | null>(null)
   const [submitting, setSubmitting] = useState(false)
+  const router = useRouter()
 
   useEffect(() => {
     if (!employeeName && !employeeEmail) return
@@ -27,9 +62,9 @@ export default function AttendanceForm({ employeeName, employeeEmail }) {
         setCheck(
           data?.attended
             ? {
-                kind: 'already',
-                message: `${employeeName} already attended today (${data.status})`,
-              }
+              kind: 'already',
+              message: `${employeeName} already attended today (${data.status})`,
+            }
             : { kind: 'ready', message: 'Not marked yet — you can submit.' },
         )
       })
@@ -41,16 +76,24 @@ export default function AttendanceForm({ employeeName, employeeEmail }) {
     }
   }, [employeeName, employeeEmail])
 
-  const handleSubmit = async (e) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if ((!employeeName && !employeeEmail) || submitting) return
 
     setSubmitting(true)
     try {
+      const time = new Intl.DateTimeFormat('en-US', {
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true,
+        timeZone: 'Asia/Dhaka',
+      }).format(new Date())
+      const location = await getLocation()
+
       const res = await fetch('/api/attendance', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ employeeName, employeeEmail, status }),
+        body: JSON.stringify({ employeeName, employeeEmail, status, time, location }),
       })
       const data = await res.json()
 
@@ -58,6 +101,7 @@ export default function AttendanceForm({ employeeName, employeeEmail }) {
         setCheck({ kind: 'already', message: data.message })
       } else if (res.ok) {
         setCheck({ kind: 'success', message: data.message })
+        router.refresh()
       } else {
         setCheck({ kind: 'error', message: data.message })
       }
@@ -79,7 +123,7 @@ export default function AttendanceForm({ employeeName, employeeEmail }) {
         <form onSubmit={handleSubmit} className="attendance-form">
           <label htmlFor="employee">Employee</label>
           <p id="employee" className="attendance-employee" title={String(employeeName || '').length > 11 ? employeeName : undefined}>
-            {shortName(employeeName)}
+            {employeeName}
             {employeeEmail && <span style={{ display: 'block', fontSize: 12, fontWeight: 400, color: 'var(--text)', marginTop: 2 }}>{employeeEmail}</span>}
           </p>
 
@@ -103,7 +147,7 @@ export default function AttendanceForm({ employeeName, employeeEmail }) {
           <button
             type="submit"
             className="btn primary"
-            disabled={(!employeeName && !employeeEmail) || submitting}
+            disabled={(!employeeName && !employeeEmail) || submitting || check?.kind === 'already'}
           >
             {submitting ? 'Submitting…' : 'Submit attendance'}
           </button>

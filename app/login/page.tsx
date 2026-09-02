@@ -1,11 +1,11 @@
-// @ts-nocheck
 import { redirect } from 'next/navigation'
 import { getSessionUser } from '@/lib/auth'
 import { isOAuthConfigured } from '@/lib/oauth'
+import LoginGate from './LoginGate'
 
 export const metadata = { title: 'Sign in' }
 
-const ERROR_MESSAGES = {
+const ERROR_MESSAGES: Record<string, string> = {
   setup: 'Google login is not configured yet. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.',
   invalid_state: 'Sign-in session expired. Please try again.',
   not_allowed: 'This Google account is not allowed. Sign in with your shared Gmail account.',
@@ -35,12 +35,13 @@ function GoogleIcon() {
   )
 }
 
-export default async function LoginPage({ searchParams }) {
+export default async function LoginPage({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
   const user = await getSessionUser()
   if (user) redirect('/')
 
-  const { error } = await searchParams
-  const message = ERROR_MESSAGES[error] || null
+  const params = await searchParams
+  const error = params.error
+  const message = error ? ERROR_MESSAGES[error] || null : null
   const configured = isOAuthConfigured()
 
   return (
@@ -51,14 +52,16 @@ export default async function LoginPage({ searchParams }) {
       </p>
 
       <div className="card">
-        {configured ? (
-          <a className="btn google-btn" href="/api/auth/google">
-            <GoogleIcon />
-            Sign in with Google
-          </a>
-        ) : (
-          <p className="login-error">Google login is not configured yet.</p>
-        )}
+        <LoginGate>
+          {configured ? (
+            <a className="btn google-btn" href="/api/auth/google">
+              <GoogleIcon />
+              Sign in with Google
+            </a>
+          ) : (
+            <p className="login-error">Google login is not configured yet.</p>
+          )}
+        </LoginGate>
         {message && <p className="login-error">{message}</p>}
       </div>
     </div>

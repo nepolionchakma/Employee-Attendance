@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { getAttendanceStatus } from '@/lib/storage'
 import { nowParts } from '@/lib/googleSheets'
 import { getSessionUser } from '@/lib/auth'
@@ -7,7 +7,7 @@ export const runtime = 'nodejs'
 
 // Status for the currently selected employee, so the page can show
 // "already attended" before the user submits.
-export async function GET(request) {
+export async function GET(request: NextRequest) {
   const user = await getSessionUser()
   if (!user) {
     return NextResponse.json({ message: 'Not authenticated' }, { status: 401 })
@@ -24,12 +24,13 @@ export async function GET(request) {
 
   try {
     const { date, day } = nowParts()
-    const result = await getAttendanceStatus(name, email, day)
+    const result = await getAttendanceStatus({ employeeName: name, employeeEmail: email, day })
     return NextResponse.json({ employee: name, email, date, ...result })
   } catch (error) {
-    console.error('GET /api/attendance/status failed:', error.message)
+    const msg = error instanceof Error ? error.message : String(error)
+    console.error('GET /api/attendance/status failed:', msg)
     return NextResponse.json(
-      { message: 'Could not read attendance. ' + error.message },
+      { message: 'Could not read attendance. ' + msg },
       { status: 500 },
     )
   }

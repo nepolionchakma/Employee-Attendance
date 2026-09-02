@@ -45,7 +45,8 @@ async function getAdminList(): Promise<string[]> {
 export async function isAllowedEmail(email: string | null | undefined): Promise<boolean> {
   const normalized = String(email || '').trim().toLowerCase()
   const allowed = await getAllowedList()
-  if (allowed.length && !allowed.includes(normalized)) return false
+  // If Google credentials exist but the allowed list is empty or the email is not in it, deny access
+  if (!allowed.includes(normalized)) return false
   const domains = (process.env.GOOGLE_ALLOWED_DOMAINS || '')
     .split(',')
     .map((d) => d.trim().toLowerCase())

@@ -1,11 +1,11 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { randomUUID } from 'node:crypto'
 import { buildAuthUrl, isOAuthConfigured } from '@/lib/oauth'
 import { OAUTH_STATE_COOKIE, sessionCookieOptions } from '@/lib/auth'
 
 export const runtime = 'nodejs'
 
-export async function GET(request) {
+export async function GET(request: NextRequest) {
   if (!isOAuthConfigured()) {
     return NextResponse.redirect(new URL('/login?error=setup', request.url))
   }
