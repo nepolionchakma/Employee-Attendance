@@ -60,8 +60,8 @@ export default function Navbar({ user }: { user: NavbarUser }) {
               <Link href="/manage-attendance" className={`navbar-link ${pathname === '/manage-attendance' ? 'active' : ''}`}>
                 <ManageIcon /> Manage Attendance
               </Link>
-              <Link href="/manage-attendance/members" className={`navbar-link ${pathname === '/manage-attendance/members' ? 'active' : ''}`}>
-                <ManageIcon /> Members
+              <Link href="/manage-members" className={`navbar-link ${pathname === '/manage-attendance/members' ? 'active' : ''}`}>
+                <ManageIcon /> Manage Members
               </Link>
             </>
           )}

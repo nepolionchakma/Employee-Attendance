@@ -7,6 +7,7 @@ interface Member {
   email: string
   phone: string
   role: string
+  address: string
 }
 
 interface PendingEdit {
@@ -14,6 +15,7 @@ interface PendingEdit {
   email: string
   phone: string
   role: string
+  address: string
 }
 
 const ROLE_OPTIONS = ['Employee', 'Admin']
@@ -43,7 +45,7 @@ export default function MembersClient() {
   const [success, setSuccess] = useState('')
   const [saving, setSaving] = useState(false)
   const [showAddRow, setShowAddRow] = useState(false)
-  const [newRow, setNewRow] = useState<PendingEdit>({ name: '', email: '', phone: '', role: 'Employee' })
+  const [newRow, setNewRow] = useState<PendingEdit>({ name: '', email: '', phone: '', role: 'Employee', address: '' })
 
   const [pendingEdits, setPendingEdits] = useState<Record<number, PendingEdit>>({})
   const [pendingAdds, setPendingAdds] = useState<PendingEdit[]>([])
@@ -91,7 +93,7 @@ export default function MembersClient() {
       return
     }
     setPendingAdds((prev) => [...prev, { ...newRow }])
-    setNewRow({ name: '', email: '', phone: '', role: 'Employee' })
+    setNewRow({ name: '', email: '', phone: '', role: 'Employee', address: '' })
     setShowAddRow(false)
     setError('')
     setSuccess('')
@@ -171,7 +173,7 @@ export default function MembersClient() {
     setPendingEdits({})
     setPendingAdds([])
     setShowAddRow(false)
-    setNewRow({ name: '', email: '', phone: '', role: 'Employee' })
+    setNewRow({ name: '', email: '', phone: '', role: 'Employee', address: '' })
     setError('')
     setSuccess('')
   }
@@ -233,13 +235,14 @@ export default function MembersClient() {
               <th>Gmail</th>
               <th>Phone</th>
               <th>Role</th>
+              <th>Address</th>
               <th>Actions</th>
             </tr>
           </thead>
           <tbody>
             {displayMembers.length === 0 && pendingAdds.length === 0 && !showAddRow ? (
               <tr>
-                <td colSpan={6} style={{ textAlign: 'center', padding: 20, color: 'var(--text)' }}>
+                <td colSpan={7} style={{ textAlign: 'center', padding: 20, color: 'var(--text)' }}>
                   No members yet — click <strong>+ Add New</strong> to create one.
                 </td>
               </tr>
@@ -261,6 +264,9 @@ export default function MembersClient() {
                       <select className="admin-cell-select" value={newRow.role} onChange={(e) => handleNewRowEdit('role', e.target.value)}>
                         {ROLE_OPTIONS.map((r) => <option key={r} value={r}>{r}</option>)}
                       </select>
+                    </td>
+                    <td>
+                      <input className="admin-inline-input" value={newRow.address} onChange={(e) => handleNewRowEdit('address', e.target.value)} placeholder="Address" />
                     </td>
                     <td>
                       <div style={{ display: 'flex', gap: 6 }}>
@@ -287,6 +293,9 @@ export default function MembersClient() {
                       <select className="admin-cell-select" value={m.role} onChange={(e) => handleCellEdit(idx, 'role', e.target.value)} disabled={saving}>
                         {ROLE_OPTIONS.map((r) => <option key={r} value={r}>{r}</option>)}
                       </select>
+                    </td>
+                    <td>
+                      <input className="admin-inline-input" value={m.address || ''} onChange={(e) => handleCellEdit(idx, 'address', e.target.value)} disabled={saving} placeholder="—" />
                     </td>
                     <td>
                       <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
@@ -318,6 +327,10 @@ export default function MembersClient() {
                         onChange={(e) => { const u = [...pendingAdds]; u[addIdx] = { ...u[addIdx], role: e.target.value }; setPendingAdds(u) }}>
                         {ROLE_OPTIONS.map((r) => <option key={r} value={r}>{r}</option>)}
                       </select>
+                    </td>
+                    <td>
+                      <input className="admin-inline-input" value={add.address} placeholder="Address" disabled={saving}
+                        onChange={(e) => { const u = [...pendingAdds]; u[addIdx] = { ...u[addIdx], address: e.target.value }; setPendingAdds(u) }} />
                     </td>
                     <td>
                       <button className="btn" style={{ padding: '6px 10px', fontSize: 13, color: '#e5484d', borderColor: '#e5484d' }} onClick={() => removePendingAdd(addIdx)} disabled={saving}>Remove</button>

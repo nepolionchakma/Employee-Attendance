@@ -181,7 +181,7 @@ export async function getEmployees({ forceRefresh = false } = {}) {
     const tab = await resolveEmployeesSheetName(sheets)
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId: SPREADSHEET_ID,
-      range: `${tab}!A1:D`,
+      range: `${tab}!A1:E`,
       valueRenderOption: 'FORMATTED_VALUE',
     })
     const rows = res.data.values || []
@@ -205,8 +205,9 @@ export async function getEmployees({ forceRefresh = false } = {}) {
       const email = String(r[1] || '').trim()
       const phone = String(r[2] || '').trim()
       const role = normalizeRole(r[3])
+      const address = String(r[4] || '').trim()
       if (!email || !email.includes('@')) continue
-      list.push({ name: name || email.split('@')[0], email, phone, role })
+      list.push({ name: name || email.split('@')[0], email, phone, role, address })
     }
     employeesCache = list
     employeesCacheAt = now
@@ -229,29 +230,29 @@ export function clearEmployeesCache() {
   employeesCacheAt = 0
 }
 
-export async function addEmployee({ name, email, phone = '', role = 'Employee' }: { name?: string; email: string; phone?: string; role?: string }) {
+export async function addEmployee({ name, email, phone = '', role = 'Employee', address = '' }: { name?: string; email: string; phone?: string; role?: string; address?: string }) {
   if (!email || !email.includes('@')) throw new Error('Valid Gmail is required')
   const sheets = await sheetsClient()
   const tab = await ensureEmployeesSheet()
   await sheets.spreadsheets.values.append({
     spreadsheetId: SPREADSHEET_ID,
-    range: `${tab}!A:D`,
+    range: `${tab}!A:E`,
     valueInputOption: 'USER_ENTERED',
     insertDataOption: 'INSERT_ROWS',
-    requestBody: { values: [[String(name || '').trim() || email.split('@')[0], String(email).trim(), String(phone).trim(), normalizeRole(role)]] },
+    requestBody: { values: [[String(name || '').trim() || email.split('@')[0], String(email).trim(), String(phone).trim(), normalizeRole(role), String(address).trim()]] },
   })
   clearEmployeesCache()
   return true
 }
 
-export async function updateEmployee(rowIndex: number, { name, email, phone, role }: { name: string; email: string; phone: string; role: string }) {
+export async function updateEmployee(rowIndex: number, { name, email, phone, role, address }: { name: string; email: string; phone: string; role: string; address?: string }) {
   const sheets = await sheetsClient()
   const tab = await ensureEmployeesSheet()
   const sheetRow = rowIndex + 2
-  const values = [[String(name || '').trim(), String(email || '').trim(), String(phone || '').trim(), normalizeRole(role)]]
+  const values = [[String(name || '').trim(), String(email || '').trim(), String(phone || '').trim(), normalizeRole(role), String(address || '').trim()]]
   await sheets.spreadsheets.values.update({
     spreadsheetId: SPREADSHEET_ID,
-    range: `${tab}!A${sheetRow}:D${sheetRow}`,
+    range: `${tab}!A${sheetRow}:E${sheetRow}`,
     valueInputOption: 'USER_ENTERED',
     requestBody: { values },
   })
