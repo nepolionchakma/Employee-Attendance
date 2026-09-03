@@ -15,6 +15,7 @@ const geistMono = Geist_Mono({
 export const metadata = {
   title: 'Attendance',
   description: "Mark today's attendance",
+  icons: { icon: '/favicon.svg' },
 }
 
 export default function RootLayout({ children }: { children: ReactNode }) {
