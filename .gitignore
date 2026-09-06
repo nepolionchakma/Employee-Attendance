@@ -43,3 +43,7 @@ next-env.d.ts
 
 # Service
 service-account.json
+
+# local sheet backups (contain real member data)
+scripts/backup-*.json
+scripts/.verify-state.json

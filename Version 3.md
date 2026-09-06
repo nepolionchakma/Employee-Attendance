@@ -17,6 +17,7 @@ User → Google sign-in → Attendance form → Google Sheets
 - **Monthly summary** — see your present/absent days on the home page
 - **Auto-refresh** — summary table updates immediately after submitting attendance
 - **Already-attended detection** — submit button disabled if attendance already submitted today
+- **One submit per day** — the form (button + radios) locks immediately after a successful submit, no reload needed
 
 ### Admin Side
 - **Manage Attendance** (`/manage-attendance`) — full spreadsheet view with inline editing
@@ -28,6 +29,13 @@ User → Google sign-in → Attendance form → Google Sheets
   - Present Days + Absent Days computed via COUNTIF formulas
   - All sheets accessible via dropdown (attendance + raw sheets)
   - Title dynamically shows current sheet name
+  - Spreadsheet-style sticky table — Date/Day columns and both header rows stay pinned while scrolling
+  - Absent auto-fill uses the custom `AUTO_ABSENT_TIME` (not hardcoded midnight)
+
+- **Sheet maintenance** (admin API) — repair or refresh attendance tabs:
+  - `refresh` — re-run auto-absent fill + Absent Days summary
+  - `add-col` — add a Presence/Location block for one member
+  - `rebuild` — delete + re-create a tab in the canonical structure (with confirmation)
 
 - **Manage Members** (`/manage-members`) — inline editing for member data
   - Add, edit, delete members directly in the table
@@ -37,8 +45,10 @@ User → Google sign-in → Attendance form → Google Sheets
 
 ### Google Sheets Integration
 - **2-column structure per employee** — Presence (`Office - 8:00 AM`) + Location
-- **Dynamic column creation** — new employee columns auto-added on first login
-- **Auto-absent marking** — past empty days filled with `Absent - 12:00 AM`
+- **All-members pre-fill** — newly created month tabs come with a Presence/Location column for **every** member in the Members tab, pre-filled with auto-absent data — no first-login wait
+- **Batched column creation** — missing member columns are added in one API batch (stays within Google Sheets read quota)
+- **Dynamic column creation** — new employee columns also auto-added on first login
+- **Auto-absent marking** — past empty days filled with `Absent - <AUTO_ABSENT_TIME>` (default `12:00 AM`, customizable via `.env`)
 - **Friday holiday** — past Fridays auto-filled as `Holiday` with orange background
 - **COUNTIF formulas** — absent days count updates automatically in the sheet
 - **Text clipping** — `wrapStrategy: CLIP` prevents cell overflow
@@ -61,8 +71,10 @@ User → Google sign-in → Attendance form → Google Sheets
 ### Step 1: Install Dependencies
 
 ```bash
-npm install
+yarn install
 ```
+
+(npm works too: `npm install`)
 
 ### Step 2: Google Cloud — Enable APIs
 
@@ -140,6 +152,8 @@ SESSION_SECRET=any-random-string-here
 # ATTENDANCE_SHEET_TAB=September 2026    # override auto-detected month tab
 # EMPLOYEES_SHEET_TAB=Members            # default is "Members"
 # GOOGLE_ALLOWED_DOMAINS=gmail.com       # restrict login to specific domains
+# AUTO_ABSENT_TIME="12:00 AM"           # time written into auto-absent cells for past days
+# NEXT_PUBLIC_AUTO_ABSENT_TIME="12:00 AM" # same value, shown in the admin panel auto-fill
 ```
 
 > **Important:** Do NOT set `ALLOWED_EMAILS` or `ADMIN_EMAILS` — all users and roles come from the **Members** sheet.
@@ -232,12 +246,14 @@ Open [http://localhost:3000](http://localhost:3000) → sign in with Google → 
 
 ### Auto-Absent Marking
 
-- Every time the grid loads, `markAbsentForPastDays()` runs
+- Runs every time the grid loads, plus an hourly job (`instrumentation.js`) aligned to the top of the hour
 - For each past day, empty cells are filled:
   - **Friday**: `Holiday` (orange background)
-  - **Other days**: `Absent - 12:00 AM` / `N/A`
+  - **Other days**: `Absent - <AUTO_ABSENT_TIME>` / `N/A`
+- **Custom absent time** — set `AUTO_ABSENT_TIME` in `.env` to change the time written into auto-absent cells (e.g. `AUTO_ABSENT_TIME="5:45 PM"`). Set `NEXT_PUBLIC_AUTO_ABSENT_TIME` to the same value so the admin panel auto-fill matches. Defaults to `12:00 AM`.
 - Today's cells are never auto-filled (you can still submit)
 - Data is preserved — only empty cells are filled, existing data is not overwritten
+- New month tabs are pre-filled for **all** members immediately on creation
 
 ### Role-Based Access
 
@@ -282,6 +298,7 @@ Open [http://localhost:3000](http://localhost:3000) → sign in with Google → 
 | POST | `/api/admin/members` | Admin | Add member |
 | PUT | `/api/admin/members` | Admin | Update member |
 | DELETE | `/api/admin/members` | Admin | Delete member |
+| POST | `/api/admin/maintenance` | Admin | Tab maintenance: `refresh` / `add-col` / `rebuild` |
 
 ---
 
@@ -294,6 +311,7 @@ Open [http://localhost:3000](http://localhost:3000) → sign in with Google → 
 │   │   │   ├── batch/route.ts       # Batch cell updates
 │   │   │   ├── data/route.ts        # Get sheet data
 │   │   │   ├── members/route.ts     # CRUD members
+│   │   │   ├── maintenance/route.ts # Tab maintenance (refresh / add-col / rebuild)
 │   │   │   └── update/route.ts      # Single cell update
 │   │   ├── attendance/
 │   │   │   ├── route.ts             # Mark attendance
@@ -325,8 +343,27 @@ Open [http://localhost:3000](http://localhost:3000) → sign in with Google → 
 │   ├── storage.ts                   # Storage abstraction
 │   └── utils.ts                     # Utility functions
 ├── .env                             # Environment variables (not committed)
+├── proxy.js                         # Route protection (login + admin gates)
+├── instrumentation.js               # Hourly auto-absent job (top of the hour)
+├── scripts/
+│   └── verify-auto-absent.mjs       # Verification test (yarn verify:absent)
 └── package.json
 ```
+
+---
+
+## Testing
+
+End-to-end verification of auto-absent + submissions. Runs entirely on a scratch tab — live data is never touched:
+
+```bash
+yarn verify:absent                                                    # default time (12:00 AM)
+AUTO_ABSENT_TIME="5:45 PM" NEXT_PUBLIC_AUTO_ABSENT_TIME="5:45 PM" yarn verify:absent   # custom time
+```
+
+Verifies: canonical tab structure, ALL member columns pre-created on a new tab, custom absent time on past days, Fridays = Holiday, today untouched, submitted data matches auto-absent format, read-back via `getAttendance`, and the Absent Days COUNTIF row. Exit code 0 = all pass.
+
+> Tip: the Google Sheets API allows ~60 reads/minute. Run tests sparingly or wait a minute between runs.
 
 ---
 
@@ -360,6 +397,8 @@ Open [http://localhost:3000](http://localhost:3000) → sign in with Google → 
 | `ATTENDANCE_SHEET_TAB` | No | Override auto-detected month tab |
 | `EMPLOYEES_SHEET_TAB` | No | Override members tab name (default: `Members`) |
 | `GOOGLE_ALLOWED_DOMAINS` | No | Comma-separated email domains to restrict login |
+| `AUTO_ABSENT_TIME` | No | Time written into auto-absent cells (default: `12:00 AM`) |
+| `NEXT_PUBLIC_AUTO_ABSENT_TIME` | No | Same value, shown in the admin panel auto-fill (keep in sync) |
 
 ---
 
@@ -377,5 +416,6 @@ Open [http://localhost:3000](http://localhost:3000) → sign in with Google → 
 | "No header row with Date found" | Sheet doesn't have the expected attendance structure |
 | Attendance resets on restart | `service-account.json` is missing — app falls back to in-memory storage |
 | Sign-in session expired | Google's redirect URI is wrong — check OAuth config |
+| Auto-absent shows the wrong time | Set `AUTO_ABSENT_TIME` (and `NEXT_PUBLIC_AUTO_ABSENT_TIME` for the admin panel) in `.env`, restart the server |
 
 > After editing `.env` or `lib/employees.ts`, restart the dev server (`Ctrl+C`, then `npm run dev`).

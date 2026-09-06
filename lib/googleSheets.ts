@@ -16,6 +16,12 @@ const TZ = 'Asia/Dhaka'
 const ABSENT_SECTION = 'Absent Days'
 const COLS_PER_EMPLOYEE = 2
 
+/**
+ * Time string written into auto-absent cells for past days, e.g. "12:00 AM".
+ * Customize with AUTO_ABSENT_TIME in .env (e.g. AUTO_ABSENT_TIME="2:00 AM" for testing).
+ */
+export const AUTO_ABSENT_TIME = (process.env.AUTO_ABSENT_TIME || '12:00 AM').trim() || '12:00 AM'
+
 export function hasGoogleCredentials() {
   return Boolean(CREDENTIALS_JSON || CREDENTIALS_BASE64) || fs.existsSync(CREDENTIALS_PATH)
 }
@@ -379,7 +385,7 @@ async function migrateToThreeCol(sheets: any, tab: string) {
     for (let i = 2; i < headers.length; i++) {
       const v = String(row[i] || '').trim()
       if (v.toLowerCase() === 'absent') {
-        newRow.push('Absent', '12:00 AM', 'N/A')
+        newRow.push('Absent', AUTO_ABSENT_TIME, 'N/A')
       } else if (v) {
         newRow.push(v, '', '')
       } else {
@@ -438,8 +444,83 @@ async function createTab(sheets: any, title: string, year: number, month: number
 
   await applyEmployeeFormatting(sheets, title)
 
+  // Pre-populate one Presence/Location column block for EVERY member so a new
+  // month tab is immediately usable by the whole team (no first-login wait),
+  // then auto-fill past days (Absent with AUTO_ABSENT_TIME, Fridays Holiday)
+  // and write the Absent Days COUNTIF summary for everyone.
+  try {
+    const members = await getEmployees({ forceRefresh: true })
+    const added = await addAllEmployeeColumns(sheets, title, members)
+    if (added > 0 || members.length) {
+      const filled = await sheets.spreadsheets.values.get({
+        spreadsheetId: SPREADSHEET_ID,
+        range: title,
+        valueRenderOption: 'FORMATTED_VALUE',
+      })
+      const rows = filled.data.values || []
+      await markAbsentForPastDays(sheets, title, rows)
+      await updateAbsentSummary(sheets, title, rows)
+    }
+  } catch (e) {
+    console.warn(`Member pre-population skipped for "${title}":`, (e as Error).message)
+  }
+
   console.log(`Created attendance tab "${title}" (${daysInMonth} days, 2-col with Timestamp row)`)
   return title
+}
+
+/**
+ * Adds Presence/Location blocks for ALL given members in ONE batched pass
+ * (1 read + 1 column expansion + 1 batch write + 1 formatting pass),
+ * unlike per-member ensureEmployeeColumn calls which hit the Sheets read quota.
+ * Returns how many columns were added.
+ */
+async function addAllEmployeeColumns(sheets: any, tab: string, members: { name?: string; email?: string }[]) {
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: SPREADSHEET_ID,
+    range: tab,
+    valueRenderOption: 'FORMATTED_VALUE',
+  })
+  const rows = res.data.values || []
+  const headerRow = findHeaderRow(rows)
+  const namesRow = findEmployeeNamesRow(rows, headerRow)
+
+  const missing = members.filter((m) => {
+    const email = String(m?.email || '').trim().toLowerCase()
+    return email && findEmployeeColumnByEmail(rows, headerRow, email) === -1
+  })
+  if (!missing.length) return 0
+
+  let startCol = Math.max(rows[namesRow].length, rows[headerRow].length, 2)
+  const neededCols = startCol + missing.length * COLS_PER_EMPLOYEE + 2
+  const sheetMeta = await sheets.spreadsheets.get({ spreadsheetId: SPREADSHEET_ID })
+  const sheetProps = sheetMeta.data.sheets?.find((s: any) => s.properties?.title === tab)
+  const currentCols = sheetProps?.properties?.gridProperties?.columnCount || 26
+  if (neededCols > currentCols) {
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId: SPREADSHEET_ID,
+      requestBody: {
+        requests: [{ updateSheetProperties: { properties: { sheetId: sheetProps?.properties?.sheetId, gridProperties: { columnCount: neededCols } }, fields: 'gridProperties.columnCount' } }],
+      },
+    })
+  }
+
+  const data: { range: string; values: any[][] }[] = []
+  for (const m of missing) {
+    const email = String(m?.email || '').trim().toLowerCase()
+    const name = String(m?.name || '').trim() || email.split('@')[0]
+    data.push({ range: `${tab}!${columnLetter(startCol)}${namesRow + 1}`, values: [[formatEmployeeHeader(name, email)]] })
+    data.push({ range: `${tab}!${columnLetter(startCol)}${headerRow + 1}:${columnLetter(startCol + 1)}${headerRow + 1}`, values: [['Presence', 'Location']] })
+    startCol += COLS_PER_EMPLOYEE
+  }
+  await sheets.spreadsheets.values.batchUpdate({
+    spreadsheetId: SPREADSHEET_ID,
+    requestBody: { valueInputOption: 'USER_ENTERED', data },
+  })
+
+  await applyEmployeeFormatting(sheets, tab)
+  console.log(`Added ${missing.length} employee column block(s) to "${tab}" in one batch`)
+  return missing.length
 }
 
 async function ensureMonthTab(sheets: any) {
@@ -676,13 +757,17 @@ async function markAbsentForPastDays(sheets: any, tab: string, rows: any[]) {
     }
   }
 
+  // Advance one full employee block per iteration (2 cols for Presence+Location,
+  // 3 for legacy) so a filled pair is never re-read as an empty Presence cell —
+  // stepping by 1 used to misalign Fridays after the first pass.
+  const fillStep = isLegacy3 ? 3 : isAtt ? COLS_PER_EMPLOYEE : 1
   for (let i = headerRow + 1; i < rows.length; i++) {
     const day = Number(rows[i][0])
     if (!Number.isInteger(day)) break
     if (day >= today) continue
     const dayName = String(rows[i][1] || '').trim()
     const isFriday = dayName === 'Fri'
-    for (let c = firstEmployeeCol; c < lastEmployeeCol; c++) {
+    for (let c = firstEmployeeCol; c < lastEmployeeCol; c += fillStep) {
       if (String(rows[i][c] ?? '').trim() === '') {
         if (isLegacy3) {
           // Legacy 3-col: merge time into presence
@@ -691,21 +776,19 @@ async function markAbsentForPastDays(sheets: any, tab: string, rows: any[]) {
             rows[i][c + 1] = ''
             rows[i][c + 2] = ''
           } else {
-            rows[i][c] = 'Absent - 12:00 AM'
+            rows[i][c] = `Absent - ${AUTO_ABSENT_TIME}`
             rows[i][c + 1] = ''
             rows[i][c + 2] = 'N/A'
           }
-          c += 2
         } else if (isAtt) {
           // New 2-col: presence + location
           if (isFriday) {
             rows[i][c] = 'Holiday'
             rows[i][c + 1] = ''
           } else {
-            rows[i][c] = 'Absent - 12:00 AM'
+            rows[i][c] = `Absent - ${AUTO_ABSENT_TIME}`
             rows[i][c + 1] = 'N/A'
           }
-          c += 1
         } else {
           rows[i][c] = isFriday ? 'Holiday' : 'Absent'
         }
@@ -1316,4 +1399,105 @@ export async function ensureEmployeeTabForUser(employeeName: string, employeeEma
   const tab = await ensureMonthTab(sheets)
   await ensureEmployeeColumn(sheets, tab, employeeName, employeeEmail)
   await loadGrid(sheets, tab)
+}
+
+/* ---- Admin maintenance helpers (rebuild / add column / refresh) ---- */
+
+function parseMonthTitle(title: string): { year: number; month: number } | null {
+  const m = title.trim().match(/^(.+?)\s+(\d{4})$/)
+  if (!m) return null
+  for (let i = 0; i < 12; i++) {
+    const d = new Date(Date.UTC(2000, i, 1))
+    const long = new Intl.DateTimeFormat('en-US', { month: 'long', timeZone: 'UTC' }).format(d)
+    const short = new Intl.DateTimeFormat('en-US', { month: 'short', timeZone: 'UTC' }).format(d)
+    if (long.toLowerCase() === m[1].toLowerCase() || short.toLowerCase() === m[1].toLowerCase()) {
+      return { year: Number(m[2]), month: i + 1 }
+    }
+  }
+  return null
+}
+
+/**
+ * Deletes and re-creates an attendance tab in the canonical structure
+ * (Timestamp row / names row / Date+Day+Presence+Location headers / Absent Days row),
+ * then adds a 2-column block for every given employee and auto-fills
+ * past days (Absent with AUTO_ABSENT_TIME, Fridays as Holiday).
+ * Used to repair tabs that drifted into a legacy/mixed structure.
+ */
+export async function recreateAttendanceTab(tab: string, employees: { name: string; email: string }[]) {
+  if (!hasGoogleCredentials() || !SPREADSHEET_ID) throw new Error('Google Sheets not configured')
+  const sheets = await sheetsClient()
+  const title = (tab || '').trim()
+  if (!title) throw new Error('Tab name required')
+
+  const tabs = await listTabs(sheets)
+  if (tabs.includes(title)) {
+    const sheetId = await sheetIdFor(sheets, title)
+    if (sheetId == null) throw new Error(`Sheet tab "${title}" not found`)
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId: SPREADSHEET_ID,
+      requestBody: { requests: [{ deleteSheet: { sheetId } }] },
+    })
+  }
+
+  const parsed = parseMonthTitle(title)
+  const { year, month } = parsed || nowParts()
+  await createTab(sheets, title, year, month)
+
+  await addAllEmployeeColumns(sheets, title, employees)
+
+  await loadGrid(sheets, title)
+  console.log(`Recreated tab "${title}" with ${employees.filter((e) => String(e?.email || '').trim()).length} employee columns`)
+  return { tab: title, employees: employees.filter((e) => String(e?.email || '').trim()).length }
+}
+
+/**
+ * Adds a 2-column Presence/Location block for an employee on an existing tab
+ * (used when a column was missed or the tab was created before the member existed).
+ */
+export async function addEmployeeColumnToTab(tab: string, employeeName: string, employeeEmail: string) {
+  if (!hasGoogleCredentials() || !SPREADSHEET_ID) throw new Error('Google Sheets not configured')
+  const sheets = await sheetsClient()
+  const title = (tab || '').trim()
+  if (!title) throw new Error('Tab name required')
+  const tabs = await listTabs(sheets)
+  if (!tabs.includes(title)) throw new Error(`Sheet tab "${title}" not found`)
+  const email = String(employeeEmail || '').trim()
+  if (!email) throw new Error('employeeEmail required')
+
+  await ensureEmployeeColumn(sheets, title, String(employeeName || '').trim() || email.split('@')[0], email)
+  await loadGrid(sheets, title)
+  return true
+}
+
+/**
+ * Re-runs auto-absent fill + Absent Days summary on a tab
+ * (the same maintenance that runs on every grid load / hourly job).
+ */
+export async function refreshAttendanceTab(tab?: string) {
+  if (!hasGoogleCredentials() || !SPREADSHEET_ID) throw new Error('Google Sheets not configured')
+  const sheets = await sheetsClient()
+  const title = (tab || '').trim() || (await ensureMonthTab(sheets))
+  const tabs = await listTabs(sheets)
+  if (!tabs.includes(title)) throw new Error(`Sheet tab "${title}" not found`)
+
+  const rows = await loadGrid(sheets, title)
+  let headerRow: number
+  try {
+    headerRow = findHeaderRow(rows)
+  } catch {
+    return { tab: title, days: 0, employees: 0 }
+  }
+  let lastDayRow = headerRow
+  for (let i = headerRow + 1; i < rows.length; i++) {
+    const d = Number(rows[i][0])
+    if (!Number.isInteger(d)) break
+    lastDayRow = i
+  }
+  const namesRow = findEmployeeNamesRow(rows, headerRow)
+  let employees = 0
+  for (let c = 2; c < (rows[namesRow]?.length ?? 0); c += COLS_PER_EMPLOYEE) {
+    if (String(rows[namesRow][c] ?? '').trim()) employees++
+  }
+  return { tab: title, days: lastDayRow - headerRow, employees }
 }

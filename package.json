@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "verify:absent": "node --env-file=.env scripts/verify-auto-absent.mjs all"
   },
   "dependencies": {
     "googleapis": "^175.0.0",

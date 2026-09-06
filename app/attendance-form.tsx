@@ -114,6 +114,10 @@ export default function AttendanceForm({ employeeName, employeeEmail }: Attendan
 
   const statusOptions = ['Office', 'Home']
 
+  // Locked once attendance is recorded — either detected on load (already)
+  // or right after a successful submit (success) — until the page is reloaded.
+  const attended = check?.kind === 'already' || check?.kind === 'success'
+
   return (
     <div className="page">
       <h2>Attendance</h2>
@@ -137,7 +141,7 @@ export default function AttendanceForm({ employeeName, employeeEmail }: Attendan
                   value={option}
                   checked={status === option}
                   onChange={() => setStatus(option)}
-                  disabled={check?.kind === 'already'}
+                  disabled={attended}
                 />
                 {option}
               </label>
@@ -147,9 +151,9 @@ export default function AttendanceForm({ employeeName, employeeEmail }: Attendan
           <button
             type="submit"
             className="btn primary"
-            disabled={(!employeeName && !employeeEmail) || submitting || check?.kind === 'already'}
+            disabled={(!employeeName && !employeeEmail) || submitting || attended}
           >
-            {submitting ? 'Submitting…' : 'Submit attendance'}
+            {submitting ? 'Submitting…' : attended ? 'Attendance submitted' : 'Submit attendance'}
           </button>
         </form>
 

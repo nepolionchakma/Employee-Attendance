@@ -243,15 +243,19 @@ a {
 }
 
 .admin-table-wrap {
-  overflow-x: auto;
+  overflow: auto;
+  max-height: calc(100vh - 200px);
   border: 1px solid var(--border);
   border-radius: 12px;
   background: var(--social-bg);
+  /* --admin-date-w: 56px;
+  --admin-head1-h: 36px; */
 }
 
 .admin-table {
   width: 100%;
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
   font-size: 14px;
   min-width: 640px;
 }
@@ -269,21 +273,51 @@ a {
   font-weight: 600;
   color: var(--text-h);
   background: var(--bg);
-  position: sticky;
-  top: 0;
-  z-index: 1;
 }
 
-.admin-table th:first-child,
-.admin-table td:first-child {
+/* Sticky header rows — employee names + Presence/Location stay on top
+   while the day rows scroll underneath. Row 2 offset must match row 1's
+   fixed height, hence box-sizing + explicit height. */
+.admin-table thead th {
+  position: sticky;
+}
+.admin-table thead tr:first-child th {
+  top: 0;
+  height: var(--admin-head1-h);
+  box-sizing: border-box;
+  z-index: 5;
+}
+.admin-table thead tr:nth-child(2) th {
+  top: var(--admin-head1-h);
+  z-index: 5;
+}
+
+/* Sticky Date + Day columns — stay visible while employee columns scroll.
+   Raw-sheets view only pins its row-number column. */
+.admin-table td:first-child,
+.admin-table thead tr:first-child th:first-child {
   position: sticky;
   left: 0;
   background: var(--bg);
-  z-index: 2;
+  z-index: 4;
 }
-
-.admin-table th:first-child {
-  z-index: 3;
+.admin-table:not(.admin-raw-table) td:nth-child(2),
+.admin-table:not(.admin-raw-table) thead tr:first-child th:nth-child(2) {
+  position: sticky;
+  left: var(--admin-date-w);
+  background: var(--bg);
+  z-index: 4;
+}
+/* Corner cells (Date/Day headers) sit above everything */
+.admin-table thead tr:first-child th:first-child,
+.admin-table:not(.admin-raw-table) thead tr:first-child th:nth-child(2) {
+  z-index: 6;
+}
+.admin-table:not(.admin-raw-table) .admin-date,
+.admin-table:not(.admin-raw-table) .admin-day {
+  width: var(--admin-date-w);
+  min-width: var(--admin-date-w);
+  max-width: var(--admin-date-w);
 }
 
 .admin-date,
@@ -444,9 +478,20 @@ a {
   background: rgba(255, 165, 0, 0.08);
 }
 
+/* Pinned Date/Day cells must be OPAQUE (pre-blended Friday tint over --bg),
+   otherwise scrolled employee data shows through them. */
+.admin-table:not(.admin-raw-table) .admin-row-friday td:first-child,
+.admin-table:not(.admin-raw-table) .admin-row-friday td:nth-child(2) {
+  background: rgb(255, 242, 219); /* rgba(255,165,0,.14) over #fff */
+}
+
 @media (prefers-color-scheme: dark) {
   .admin-row-friday td {
     background: rgba(255, 165, 0, 0.06);
+  }
+  .admin-table:not(.admin-raw-table) .admin-row-friday td:first-child,
+  .admin-table:not(.admin-raw-table) .admin-row-friday td:nth-child(2) {
+    background: rgb(50, 40, 26); /* rgba(255,165,0,.12) over #16171d */
   }
 }
 
@@ -797,7 +842,8 @@ a {
   background: rgba(170, 59, 255, 0.04);
 }
 
-.admin-table tbody tr:hover td:first-child {
+.admin-table tbody tr:hover td:first-child,
+.admin-table:not(.admin-raw-table) tbody tr:hover td:nth-child(2) {
   background: var(--code-bg);
 }
 
