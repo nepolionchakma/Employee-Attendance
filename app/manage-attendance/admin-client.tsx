@@ -5,6 +5,9 @@ import { shortName } from '@/lib/utils'
 
 const STATUS_OPTIONS = ['', 'Office', 'Home', 'Absent']
 
+// Mirror of lib/googleSheets AUTO_ABSENT_TIME — kept in sync for the client.
+const AUTO_ABSENT_TIME = (process.env.NEXT_PUBLIC_AUTO_ABSENT_TIME || '12:00 AM').trim() || '12:00 AM'
+
 function formatSystemTime() {
   return new Intl.DateTimeFormat('en-US', {
     hour: 'numeric',
@@ -15,7 +18,7 @@ function formatSystemTime() {
 }
 
 function previewTime(status: string) {
-  if (status === 'Absent') return '12:00 AM'
+  if (status === 'Absent') return AUTO_ABSENT_TIME
   if (status === 'Office' || status === 'Home') return formatSystemTime()
   return ''
 }
@@ -186,8 +189,8 @@ export default function AdminClient({ user }: { user: AdminClientUser }) {
     setPendingAttendance((prev) => {
       const existing = prev[key] || { employeeName, day: date, status: '', location: '', time: '' }
       if (field === 'status') {
-        // Auto-fill time when status changes: system time for Office/Home, 12:00 AM for Absent
-        const autoTime = value === 'Absent' ? '12:00 AM' : value ? formatSystemTime() : ''
+        // Auto-fill time when status changes: system time for Office/Home, custom absent time for Absent
+        const autoTime = value === 'Absent' ? AUTO_ABSENT_TIME : value ? formatSystemTime() : ''
         return { ...prev, [key]: { ...existing, status: value, time: autoTime } }
       }
       return { ...prev, [key]: { ...existing, [field]: value } }
