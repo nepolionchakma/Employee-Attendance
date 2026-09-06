@@ -1,6 +1,6 @@
 # Attendance Management App — Version 3
 
-A Next.js attendance management system backed by Google Sheets. Employees sign in via Google OAuth, mark daily attendance with real-time GPS location, and admins manage everything through a dynamic dashboard — all data lives in Google Sheets.
+A Next.js attendance management system backed by Google Sheets. Employees sign in via Google OAuth, mark daily attendance (Office / Home), and admins manage everything through a dynamic dashboard — all data lives in Google Sheets.
 
 ```
 User → Google sign-in → Attendance form → Google Sheets
@@ -12,8 +12,7 @@ User → Google sign-in → Attendance form → Google Sheets
 
 ### Employee Side
 - **Google OAuth login** — sign in with your Gmail account
-- **Location-gated attendance** — browser geolocation required before marking attendance
-- **One-click attendance** — select Office / Home / Absent with auto-captured time and GPS address
+- **One-click attendance** — select Office / Home with auto-captured time (server-side)
 - **Monthly summary** — see your present/absent days on the home page
 - **Auto-refresh** — summary table updates immediately after submitting attendance
 - **Already-attended detection** — submit button disabled if attendance already submitted today
@@ -23,8 +22,6 @@ User → Google sign-in → Attendance form → Google Sheets
 - **Manage Attendance** (`/manage-attendance`) — full spreadsheet view with inline editing
   - Dropdown per employee to change Presence (Office / Home / Absent)
   - Custom time input (auto-filled with system time, editable)
-  - Real-time GPS location auto-filled when selecting Office / Home
-  - Location can be manually edited after auto-fill
   - Batch save — edit many cells, then save all at once
   - Present Days + Absent Days computed via COUNTIF formulas
   - All sheets accessible via dropdown (attendance + raw sheets)
@@ -34,7 +31,7 @@ User → Google sign-in → Attendance form → Google Sheets
 
 - **Sheet maintenance** (admin API) — repair or refresh attendance tabs:
   - `refresh` — re-run auto-absent fill + Absent Days summary
-  - `add-col` — add a Presence/Location block for one member
+  - `add-col` — add a Presence/Time block for one member
   - `rebuild` — delete + re-create a tab in the canonical structure (with confirmation)
 
 - **Manage Members** (`/manage-members`) — inline editing for member data
@@ -44,8 +41,9 @@ User → Google sign-in → Attendance form → Google Sheets
   - Roles: Admin / Employee (capitalized)
 
 ### Google Sheets Integration
-- **2-column structure per employee** — Presence (`Office - 8:00 AM`) + Location
-- **All-members pre-fill** — newly created month tabs come with a Presence/Location column for **every** member in the Members tab, pre-filled with auto-absent data — no first-login wait
+- **2-column structure per employee** — Presence (pure status: `Office` / `Home` / `Absent` / `Holiday`) + Time (e.g. `8:00 AM`)
+- **Legacy migration** — old tabs that stored `Office - 8:00 AM` + Location are auto-migrated to the Presence + Time format on first load
+- **All-members pre-fill** — newly created month tabs come with a Presence/Time column pair for **every** member in the Members tab, pre-filled with auto-absent data — no first-login wait
 - **Batched column creation** — missing member columns are added in one API batch (stays within Google Sheets read quota)
 - **Dynamic column creation** — new employee columns also auto-added on first login
 - **Auto-absent marking** — past empty days filled with `Absent - <AUTO_ABSENT_TIME>` (default `12:00 AM`, customizable via `.env`)
@@ -192,16 +190,19 @@ Open [http://localhost:3000](http://localhost:3000) → sign in with Google → 
 | | | Nepolion Chakma \<email\> | John Doe \<email\> |
 |---|---|---|---|
 | **Timestamp** | | | |
-| **Date** | **Day** | **Presence** | **Location** |
-| 1 | Mon | Office - 9:00 AM | Road 5, Dhaka |
-| 2 | Tue | Absent - 12:00 AM | N/A |
-| 3 | Wed | Home - 3:30 PM | Road 5, Dhaka |
+| **Date** | **Day** | **Presence** | **Time** |
+|---|---|---|---|
+| **Timestamp** | | | |
+| **Date** | **Day** | **Presence** | **Time** |
+| 1 | Mon | Office | 9:00 AM |
+| 2 | Tue | Absent | 12:00 AM |
+| 3 | Wed | Home | 3:30 PM |
 | ... | ... | ... | ... |
 | 30 | Fri | Holiday | |
 | **Absent Days** | | `=COUNTIF(C3:C32,"Absent*")` | `=COUNTIF(D3:D32,"Absent*")` |
 
-- **Presence format**: `Status - Time` (e.g., `Office - 9:00 AM`, `Absent - 12:00 AM`)
-- **Location**: real GPS address from browser geolocation (reverse geocoded via OpenStreetMap)
+- **Presence**: pure status — `Office` / `Home` / `Absent` / `Holiday`
+- **Time**: separate column next to Presence (e.g. `9:00 AM`); empty for Holidays
 - **Fridays**: auto-filled as `Holiday` for past dates (orange background)
 - **Absent Days**: COUNTIF formula auto-counts — no manual Total row needed
 
@@ -219,28 +220,22 @@ Open [http://localhost:3000](http://localhost:3000) → sign in with Google → 
 
 ### Attendance Submission Flow
 
-1. Employee opens home page → `LocationGate` checks browser geolocation permission
-2. Location must be granted before the attendance form is visible
-3. Employee selects Office / Home / Absent
-4. On submit:
-   - Browser captures GPS coordinates → reverse geocoded via OpenStreetMap
-   - Time captured from system clock (Asia/Dhaka timezone)
-   - Writes to Google Sheet: `["Office - 9:30 AM", "Road 5, Dhaka"]`
-5. Page refreshes → summary table updates immediately
+1. Employee opens home page and selects Office / Home
+2. On submit, the API route captures time from the server clock (Asia/Dhaka timezone)
+3. Writes to Google Sheet: `Office` in the Presence column, `9:30 AM` in the Time column
+4. Page refreshes → summary table updates immediately; the form locks for the rest of the day
 
 ### Admin Flow
 
 1. Admin opens `/manage-attendance` → sees dropdown of all spreadsheet tabs
 2. Current month attendance tab is auto-selected
-3. Grid shows all employees with Presence dropdown + Location input + Time input
-4. Presence dropdown shows the full format (e.g., `Office - 03:33 PM`)
+3. Grid shows all employees with a Presence dropdown + Time input per employee
+4. Presence dropdown shows the pure status (e.g., `Office`)
 5. When selecting Office/Home:
-   - Time auto-fills with current system time
-   - Location auto-fills with real GPS address (browser geolocation)
+   - Time auto-fills with current system time (editable)
 6. When selecting Absent:
-   - Time auto-fills with `12:00 AM`
-   - Location auto-fills with `N/A`
-7. Admin can manually edit time and location after auto-fill
+   - Time auto-fills with `AUTO_ABSENT_TIME` (default `12:00 AM`)
+7. Admin can manually edit the time after auto-fill
 8. Press **Save** → batch writes all changes to Google Sheets at once
 9. Absent Days row recomputes via COUNTIF formula on save
 
@@ -249,7 +244,7 @@ Open [http://localhost:3000](http://localhost:3000) → sign in with Google → 
 - Runs every time the grid loads, plus an hourly job (`instrumentation.js`) aligned to the top of the hour
 - For each past day, empty cells are filled:
   - **Friday**: `Holiday` (orange background)
-  - **Other days**: `Absent - <AUTO_ABSENT_TIME>` / `N/A`
+  - **Other days**: `Absent` + `<AUTO_ABSENT_TIME>` in the Time column
 - **Custom absent time** — set `AUTO_ABSENT_TIME` in `.env` to change the time written into auto-absent cells (e.g. `AUTO_ABSENT_TIME="5:45 PM"`). Set `NEXT_PUBLIC_AUTO_ABSENT_TIME` to the same value so the admin panel auto-fill matches. Defaults to `12:00 AM`.
 - Today's cells are never auto-filled (you can still submit)
 - Data is preserved — only empty cells are filled, existing data is not overwritten
@@ -321,7 +316,6 @@ Open [http://localhost:3000](http://localhost:3000) → sign in with Google → 
 │   │       └── logout/route.ts      # Logout
 │   ├── components/
 │   │   ├── HomeSummaryTable.tsx      # Monthly summary (present/absent)
-│   │   ├── LocationGate.tsx          # GPS permission gate
 │   │   └── Navbar.tsx               # Navigation bar
 │   ├── login/page.tsx               # Login page
 │   ├── manage-attendance/
@@ -409,7 +403,7 @@ Verifies: canonical tab structure, ALL member columns pre-created on a new tab, 
 | "Google login is not configured yet" | Check `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` in `.env` |
 | "The caller does not have permission" | Spreadsheet not shared with service account as **Editor** |
 | "Employee not found in sheet headers" | Employee must log in once to auto-create their column |
-| Attendance form not showing | Allow browser geolocation permission |
+| Attendance form not showing | Refresh the page — if it persists, check the server logs |
 | Admin can't see Manage Attendance | User's `Role` must be `Admin` in Members tab |
 | Login blocked for valid user | User's email must exist in Members tab |
 | Data not updating | Employee cache is 60 seconds — wait or restart server |

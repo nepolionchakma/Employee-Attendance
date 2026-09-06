@@ -14,34 +14,6 @@ interface CheckState {
   message: string
 }
 
-function getLocation(): Promise<string> {
-  return new Promise((resolve) => {
-    if (!('geolocation' in navigator)) {
-      resolve('N/A')
-      return
-    }
-    navigator.geolocation.getCurrentPosition(
-      async (pos) => {
-        try {
-          const { latitude, longitude } = pos.coords
-          const res = await fetch(
-            `https://nominatim.openstreetmap.org/reverse?lat=${latitude}&lon=${longitude}&format=json`,
-          )
-          const data = await res.json()
-          const addr = data.address || {}
-          const road = addr.road || addr.county || ''
-          const district = addr.state_district || ''
-          resolve([road, district].filter(Boolean).join(', ') || `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`)
-        } catch {
-          resolve('N/A')
-        }
-      },
-      () => resolve('N/A'),
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 },
-    )
-  })
-}
-
 export default function AttendanceForm({ employeeName, employeeEmail }: AttendanceFormProps) {
   const [status, setStatus] = useState('Office')
   const [check, setCheck] = useState<CheckState | null>(null)
@@ -88,12 +60,11 @@ export default function AttendanceForm({ employeeName, employeeEmail }: Attendan
         hour12: true,
         timeZone: 'Asia/Dhaka',
       }).format(new Date())
-      const location = await getLocation()
 
       const res = await fetch('/api/attendance', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ employeeName, employeeEmail, status, time, location }),
+        body: JSON.stringify({ employeeName, employeeEmail, status, time }),
       })
       const data = await res.json()
 

@@ -248,8 +248,39 @@ a {
   border: 1px solid var(--border);
   border-radius: 12px;
   background: var(--social-bg);
-  /* --admin-date-w: 56px;
-  --admin-head1-h: 36px; */
+  /* Used by the sticky Date/Day columns + stacked header rows */
+  --admin-date-w: 56px;
+  --admin-head1-h: 36px;
+}
+
+/* Thin custom scrollbars (webkit + Firefox) for scrollable tables.
+   Uses color-mix so light/dark both come from the same vars. */
+.admin-table-wrap,
+.home-summary-wrap {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--text) 28%, transparent) transparent;
+}
+.admin-table-wrap::-webkit-scrollbar,
+.home-summary-wrap::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.admin-table-wrap::-webkit-scrollbar-track,
+.home-summary-wrap::-webkit-scrollbar-track {
+  background: transparent;
+}
+.admin-table-wrap::-webkit-scrollbar-thumb,
+.home-summary-wrap::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--text) 28%, transparent);
+  border-radius: 8px;
+}
+.admin-table-wrap::-webkit-scrollbar-thumb:hover,
+.home-summary-wrap::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--text) 45%, transparent);
+}
+.admin-table-wrap::-webkit-scrollbar-corner,
+.home-summary-wrap::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 .admin-table {

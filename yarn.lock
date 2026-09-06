@@ -2394,6 +2394,11 @@ language-tags@^1.0.9:
   dependencies:
     language-subtag-registry "^0.3.20"
 
+ldrs@^1.1.9:
+  version "1.1.9"
+  resolved "https://registry.npmjs.org/ldrs/-/ldrs-1.1.9.tgz#d3d86c9ea0278acb4d0dcb3bfa312d11aee26cee"
+  integrity sha512-JKVdzboxeZrKecA8ovi5iIDgs59wUrtJ+LDrHCgZecNrR0AJi2cJ3ZANJ+UCNS/sHRol73/jlypNCAMCXS+Ung==
+
 levn@^0.4.1:
   version "0.4.1"
   resolved "https://registry.npmjs.org/levn/-/levn-0.4.1.tgz"

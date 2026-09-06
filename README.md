@@ -1,11 +1,11 @@
 # Attendance App (v3)
 
 Employees sign in with their Google account, then mark today's attendance
-(Office / Home) with real-time GPS location. Records live in a Google Sheets
-spreadsheet. Admins manage attendance and members from a built-in dashboard.
+(Office / Home). Records live in a Google Sheets spreadsheet. Admins manage
+attendance and members from a built-in dashboard.
 
 ```
-User → Google sign-in → Location gate → Attendance form → Google Sheets
+User → Google sign-in → Attendance form → Google Sheets
 ```
 
 ## Quick start
@@ -25,7 +25,6 @@ tab of your spreadsheet.
 ## Features
 
 - **Google OAuth login** — only emails in the Members tab can sign in
-- **Location-gated attendance** — browser GPS required, reverse-geocoded to an address
 - **One submit per day** — form locks after submitting; duplicates rejected server-side (409)
 - **Monthly summary** — present/absent counts on the home page
 - **All-members pre-fill** — new month tabs come pre-created for every member, with past days auto-marked
@@ -39,9 +38,9 @@ tab of your spreadsheet.
 | Tab | Purpose |
 |---|---|
 | `Members` | Directory: Full Name, Gmail, Phone, Role (`Admin`/`Employee`), Address |
-| `September 2026` (auto) | One **Presence + Location** column pair per member, one row per day, COUNTIF `Absent Days` row |
+| `September 2026` (auto) | One **Presence + Time** column pair per member, one row per day, COUNTIF `Absent Days` row |
 
-- Presence format: `Status - Time` (e.g. `Office - 9:00 AM`, `Absent - 12:00 AM`)
+- Presence holds the pure status (`Office` / `Home` / `Absent` / `Holiday`); Time holds e.g. `9:00 AM`
 - Fridays auto-fill as `Holiday`
 - Roles come from the Members tab (`Role` = `Admin` or `Employee`)
 

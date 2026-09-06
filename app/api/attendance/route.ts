@@ -18,7 +18,6 @@ export async function POST(request: NextRequest) {
   const employeeName = String(body?.employeeName || body?.name || user.name || '').trim()
   const status = String(body?.status || 'Office').trim()
   const time = String(body?.time || '').trim()
-  const location = String(body?.location || '').trim()
 
   if (!employeeEmail && !employeeName) {
     return NextResponse.json({ message: 'employeeEmail or employeeName is required' }, { status: 400 })
@@ -48,7 +47,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    await markAttendanceStatus({ employeeName, employeeEmail, day, status, time, location })
+    await markAttendanceStatus({ employeeName, employeeEmail, day, status, time })
     return NextResponse.json({
       attended: false,
       employee: employeeName,
@@ -56,7 +55,6 @@ export async function POST(request: NextRequest) {
       date,
       status,
       time,
-      location,
       message: `${employeeName || employeeEmail} marked as ${status} for today (${date})`,
     })
   } catch (error) {
