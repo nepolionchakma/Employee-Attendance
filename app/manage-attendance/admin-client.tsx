@@ -23,40 +23,12 @@ function previewTime(status: string) {
   return ''
 }
 
-function getRealTimeLocation(): Promise<string> {
-  return new Promise((resolve) => {
-    if (!('geolocation' in navigator)) {
-      resolve('N/A')
-      return
-    }
-    navigator.geolocation.getCurrentPosition(
-      async (pos) => {
-        try {
-          const { latitude, longitude } = pos.coords
-          const res = await fetch(
-            `https://nominatim.openstreetmap.org/reverse?lat=${latitude}&lon=${longitude}&format=json`,
-          )
-          const data = await res.json()
-          const addr = data.address || {}
-          const road = addr.road || addr.county || ''
-          const district = addr.state_district || ''
-          resolve([road, district].filter(Boolean).join(', ') || `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`)
-        } catch {
-          resolve('N/A')
-        }
-      },
-      () => resolve('N/A'),
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 },
-    )
-  })
-}
-
 interface AttendanceGrid {
   kind: 'attendance'
   tab: string
   tabs: string[]
   employees: string[]
-  days: { date: string; day: string; values: Record<string, string>; locationValues: Record<string, string> }[]
+  days: { date: string; day: string; values: Record<string, string>; timeValues: Record<string, string> }[]
   absentDays: Record<string, number>
 }
 
@@ -128,8 +100,8 @@ export default function AdminClient({ user }: { user: AdminClientUser }) {
   const [saving, setSaving] = useState(false)
   const [success, setSuccess] = useState('')
 
-  // pending edits: attendance -> { "emp::date": { employeeName, day, status, location, time } }
-  const [pendingAttendance, setPendingAttendance] = useState<Record<string, { employeeName: string; day: string; status: string; location?: string; time?: string }>>({})
+  // pending edits: attendance -> { "emp::date": { employeeName, day, status, time } }
+  const [pendingAttendance, setPendingAttendance] = useState<Record<string, { employeeName: string; day: string; status: string; time?: string }>>({})
   // raw -> { "row::col": { row, col, value } }
   const [pendingRaw, setPendingRaw] = useState<Record<string, { row: number; col: number; value: string }>>({})
 
@@ -180,14 +152,14 @@ export default function AdminClient({ user }: { user: AdminClientUser }) {
       const days = prev.days.map((d) => {
         if (d.date !== date) return d
         if (field === 'status') return { ...d, values: { ...d.values, [employeeName]: value } }
-        if (field === 'location') return { ...d, locationValues: { ...d.locationValues, [employeeName]: value } }
+        if (field === 'time') return { ...d, timeValues: { ...d.timeValues, [employeeName]: value } }
         return d
       })
       return { ...prev, days }
     })
     const key = `${employeeName}::${date}`
     setPendingAttendance((prev) => {
-      const existing = prev[key] || { employeeName, day: date, status: '', location: '', time: '' }
+      const existing = prev[key] || { employeeName, day: date, status: '', time: '' }
       if (field === 'status') {
         // Auto-fill time when status changes: system time for Office/Home, custom absent time for Absent
         const autoTime = value === 'Absent' ? AUTO_ABSENT_TIME : value ? formatSystemTime() : ''
@@ -224,7 +196,6 @@ export default function AdminClient({ user }: { user: AdminClientUser }) {
           day: u.day,
           status: u.status,
           time: u.time || '',
-          location: u.location || '',
         }))
         const res = await fetch('/api/admin/batch', {
           method: 'POST',
@@ -356,7 +327,7 @@ export default function AdminClient({ user }: { user: AdminClientUser }) {
                     {grid.employees.map((emp) => (
                       <React.Fragment key={emp}>
                         <th className="admin-sub-header">Presence</th>
-                        <th className="admin-sub-header">Location</th>
+                        <th className="admin-sub-header">Time</th>
                       </React.Fragment>
                     ))}
                   </tr>
@@ -367,18 +338,10 @@ export default function AdminClient({ user }: { user: AdminClientUser }) {
                       <td className="admin-date">{row.date}</td>
                       <td className="admin-day">{row.day}</td>
                       {grid.employees.map((emp) => {
-                        const val = row.values[emp] || ''
-                        const origLocVal = row.locationValues?.[emp] || ''
                         const key = `${emp}::${row.date}`
                         const isDirty = key in pendingAttendance
-                        // Extract status from merged 'Status - Time' format
-                        const dashIdx = val.lastIndexOf(' - ')
-                        const statusVal = dashIdx !== -1 ? val.substring(0, dashIdx).trim() : val
-                        // Extract time from merged 'Status - Time' format
-                        const origTime = dashIdx !== -1 ? val.substring(dashIdx + 3).trim() : ''
-                        const displayStatus = isDirty ? (pendingAttendance[key]?.status ?? statusVal) : statusVal
-                        const currentTime = isDirty ? (pendingAttendance[key]?.time ?? '') : origTime
-                        const displayLoc = isDirty ? (pendingAttendance[key]?.location ?? origLocVal) : origLocVal
+                        const displayStatus = isDirty ? (pendingAttendance[key]?.status ?? (row.values[emp] || '')) : row.values[emp] || ''
+                        const displayTime = isDirty ? (pendingAttendance[key]?.time ?? (row.timeValues?.[emp] || '')) : row.timeValues?.[emp] || ''
 
                         return (
                           <React.Fragment key={emp}>
@@ -386,19 +349,7 @@ export default function AdminClient({ user }: { user: AdminClientUser }) {
                               <select
                                 className="admin-cell-select"
                                 value={displayStatus}
-                                onChange={async (e) => {
-                                  const newStatus = e.target.value
-                                  handleAttendanceEdit(emp, row.date, 'status', newStatus)
-                                  // Fetch real-time GPS location for Office/Home
-                                  if (newStatus === 'Office' || newStatus === 'Home') {
-                                    const loc = await getRealTimeLocation()
-                                    handleAttendanceEdit(emp, row.date, 'location', loc)
-                                  } else if (newStatus === 'Absent') {
-                                    handleAttendanceEdit(emp, row.date, 'location', 'N/A')
-                                  } else {
-                                    handleAttendanceEdit(emp, row.date, 'location', '')
-                                  }
-                                }}
+                                onChange={(e) => handleAttendanceEdit(emp, row.date, 'status', e.target.value)}
                                 disabled={saving}
                                 aria-label={`${emp} presence on ${row.date}`}
                               >
@@ -408,25 +359,16 @@ export default function AdminClient({ user }: { user: AdminClientUser }) {
                                   </option>
                                 ))}
                               </select>
-                              {displayStatus && (
-                                <input
-                                  className="admin-time-input"
-                                  type="text"
-                                  value={currentTime}
-                                  placeholder="time"
-                                  onChange={(e) => handleAttendanceEdit(emp, row.date, 'time', e.target.value)}
-                                  disabled={saving}
-                                  aria-label={`${emp} time on ${row.date}`}
-                                />
-                              )}
                             </td>
                             <td className={isDirty ? ' admin-cell-dirty' : ''}>
                               <input
-                                className="admin-loc-input"
-                                value={displayLoc}
-                                onChange={(e) => handleAttendanceEdit(emp, row.date, 'location', e.target.value)}
+                                className="admin-time-input"
+                                type="text"
+                                value={displayTime}
+                                placeholder="time"
+                                onChange={(e) => handleAttendanceEdit(emp, row.date, 'time', e.target.value)}
                                 disabled={saving}
-                                aria-label={`${emp} location on ${row.date}`}
+                                aria-label={`${emp} time on ${row.date}`}
                               />
                               {isDirty && <span className="admin-dirty-dot" title="Unsaved" />}
                             </td>

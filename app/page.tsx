@@ -3,7 +3,6 @@ import { getSessionUser } from '@/lib/auth'
 import AttendanceForm from './attendance-form'
 import Navbar from './components/Navbar'
 import HomeSummaryTable from './components/HomeSummaryTable'
-import LocationGate from './components/LocationGate'
 
 export const metadata = { title: 'Attendance' }
 
@@ -99,9 +98,7 @@ export default async function HomePage() {
           </div>
         )}
 
-        <LocationGate>
-          <AttendanceForm employeeName={user.name} employeeEmail={user.email} />
-        </LocationGate>
+        <AttendanceForm employeeName={user.name} employeeEmail={user.email} />
       </div>
     </>
   )

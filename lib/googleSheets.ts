@@ -321,7 +321,7 @@ function columnLetter(index: number) {
   return letter
 }
 
-/* ---- 3-column structure detection ---- */
+/* ---- structure detection ---- */
 
 function isAttendanceStructure(rows: any[], headerRow: number) {
   const row = rows[headerRow] || []
@@ -332,18 +332,37 @@ function isAttendanceStructure(rows: any[], headerRow: number) {
   return false
 }
 
-/** Legacy detection: checks if sheet has 3-col structure (Presence/Time/Location) */
-function isLegacyThreeCol(rows: any[], headerRow: number) {
+/** Old merged format: Presence holds 'Status - Time', second column is Location. */
+function isMergedPresenceFormat(rows: any[], headerRow: number) {
   const row = rows[headerRow] || []
-  for (let i = 2; i < Math.min(10, row.length); i++) {
-    if (String(row[i] || '').trim().toLowerCase() === 'time') return true
+  for (let i = 3; i < Math.min(10, row.length); i++) {
+    if (String(row[i] || '').trim().toLowerCase() === 'location') return true
   }
   return false
 }
 
-/* ---- migrateToThreeCol ---- */
+/** Legacy detection: true 3-col blocks (Presence/Time/Location).
+ * Must require BOTH markers — the new Presence+Time format also has a 'Time'
+ * header, and matching that made the auto-absent fill stride 3 columns and
+ * misalign every employee after the first. */
+function isLegacyThreeCol(rows: any[], headerRow: number) {
+  const row = rows[headerRow] || []
+  let hasTime = false
+  let hasLocation = false
+  for (let i = 2; i < Math.min(12, row.length); i++) {
+    const h = String(row[i] || '').trim().toLowerCase()
+    if (h === 'time') hasTime = true
+    if (h === 'location') hasLocation = true
+  }
+  return hasTime && hasLocation
+}/* ---- migrate: old 'Status - Time' + Location format → Presence + Time ---- */
 
-async function migrateToThreeCol(sheets: any, tab: string) {
+/**
+ * Rewrites a tab from the old merged format (Presence = 'Status - Time',
+ * Location column) into the new format (Presence = pure status, Time column).
+ * No-op if the tab already uses the new format.
+ */
+async function migrateMergedToPresenceTime(sheets: any, tab: string) {
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: SPREADSHEET_ID,
     range: tab,
@@ -351,61 +370,42 @@ async function migrateToThreeCol(sheets: any, tab: string) {
   })
   const rows = res.data.values || []
   const headerRow = findHeaderRow(rows)
-  if (isAttendanceStructure(rows, headerRow)) return false
+  if (!isMergedPresenceFormat(rows, headerRow)) return false
 
-  const headers = rows[headerRow]
-  const newHeaders0 = [...headers.slice(0, 2)]
-  const newHeaders1 = ['', '']
-  for (let i = 2; i < headers.length; i++) {
-    const h = String(headers[i] || '').trim()
-    if (!h) continue
-    newHeaders0.push(h, '', '')
-    newHeaders1.push('Presence', 'Time', 'Location')
+  const namesRow = findEmployeeNamesRow(rows, headerRow)
+  for (let i = 3; i < (rows[headerRow]?.length ?? 0); i++) {
+    if (String(rows[headerRow][i] || '').trim().toLowerCase() === 'location') {
+      rows[headerRow][i] = 'Time'
+    }
   }
 
-  const newRows = []
-  newRows.push(newHeaders0)
-  newRows.push(newHeaders1)
   for (let r = headerRow + 1; r < rows.length; r++) {
     const row = rows[r] || []
-    if (String(row[0] || '').trim() === ABSENT_SECTION || String(row[0] || '').trim().toLowerCase() === 'total') {
-      const newRow = [row[0] || '', row[1] || '']
-      for (let i = 2; i < headers.length; i++) {
-        newRow.push(String(row[i] || '').trim(), '', '')
-      }
-      newRows.push(newRow)
-      continue
+    for (let c = 2; c < row.length; c += 2) {
+      const presence = String(row[c] ?? '').trim()
+      if (!presence) continue
+      const dashIdx = presence.lastIndexOf(' - ')
+      if (dashIdx === -1) continue
+      const status = presence.substring(0, dashIdx).trim()
+      const time = presence.substring(dashIdx + 3).trim()
+      row[c] = status
+      // Always write the parsed time — the old location value (e.g. 'N/A' or a
+      // place name) is dropped because location no longer exists in this format.
+      row[c + 1] = time
     }
-    const day = String(row[0] || '').trim()
-    if (!day) {
-      newRows.push(row)
-      continue
-    }
-    const newRow = [row[0] || '', row[1] || '']
-    for (let i = 2; i < headers.length; i++) {
-      const v = String(row[i] || '').trim()
-      if (v.toLowerCase() === 'absent') {
-        newRow.push('Absent', AUTO_ABSENT_TIME, 'N/A')
-      } else if (v) {
-        newRow.push(v, '', '')
-      } else {
-        newRow.push('', '', '')
-      }
-    }
-    newRows.push(newRow)
   }
 
   await sheets.spreadsheets.values.update({
     spreadsheetId: SPREADSHEET_ID,
     range: `${tab}!A1`,
     valueInputOption: 'USER_ENTERED',
-    requestBody: { values: newRows },
+    requestBody: { values: rows },
   })
-  console.log(`Migrated tab "${tab}" from 1-col to 3-col`)
+  console.log(`Migrated tab "${tab}" from merged 'Status - Time'+Location to Presence+Time`)
   return true
 }
 
-/* ---- createTab with Timestamp row + Date/Day/Presence/Location headers ---- */
+/* ---- createTab with Timestamp row + Date/Day/Presence/Time headers ---- */
 
 async function createTab(sheets: any, title: string, year: number, month: number) {
   await sheets.spreadsheets.batchUpdate({
@@ -444,7 +444,7 @@ async function createTab(sheets: any, title: string, year: number, month: number
 
   await applyEmployeeFormatting(sheets, title)
 
-  // Pre-populate one Presence/Location column block for EVERY member so a new
+  // Pre-populate one Presence/Time column block for EVERY member so a new
   // month tab is immediately usable by the whole team (no first-login wait),
   // then auto-fill past days (Absent with AUTO_ABSENT_TIME, Fridays Holiday)
   // and write the Absent Days COUNTIF summary for everyone.
@@ -470,7 +470,7 @@ async function createTab(sheets: any, title: string, year: number, month: number
 }
 
 /**
- * Adds Presence/Location blocks for ALL given members in ONE batched pass
+ * Adds Presence/Time blocks for ALL given members in ONE batched pass
  * (1 read + 1 column expansion + 1 batch write + 1 formatting pass),
  * unlike per-member ensureEmployeeColumn calls which hit the Sheets read quota.
  * Returns how many columns were added.
@@ -510,7 +510,7 @@ async function addAllEmployeeColumns(sheets: any, tab: string, members: { name?:
     const email = String(m?.email || '').trim().toLowerCase()
     const name = String(m?.name || '').trim() || email.split('@')[0]
     data.push({ range: `${tab}!${columnLetter(startCol)}${namesRow + 1}`, values: [[formatEmployeeHeader(name, email)]] })
-    data.push({ range: `${tab}!${columnLetter(startCol)}${headerRow + 1}:${columnLetter(startCol + 1)}${headerRow + 1}`, values: [['Presence', 'Location']] })
+    data.push({ range: `${tab}!${columnLetter(startCol)}${headerRow + 1}:${columnLetter(startCol + 1)}${headerRow + 1}`, values: [['Presence', 'Time']] })
     startCol += COLS_PER_EMPLOYEE
   }
   await sheets.spreadsheets.values.batchUpdate({
@@ -642,7 +642,7 @@ function findEmployeeColumn(rows: any[], headerRow: number, employeeName: string
 
 /**
  * Ensures employee column exists. For attendance structure, adds 2 columns at once
- * (Presence/Location) with sub-header row.
+ * (Presence/Time) with sub-header row.
  */
 async function ensureEmployeeColumn(sheets: any, tab: string, employeeName: string, employeeEmail?: string) {
   const email = String(employeeEmail || '').trim().toLowerCase()
@@ -717,7 +717,7 @@ async function ensureEmployeeColumn(sheets: any, tab: string, employeeName: stri
         spreadsheetId: SPREADSHEET_ID,
         range: `${tab}!${columnLetter(startCol)}${headerRow + 1}:${columnLetter(startCol + 1)}${headerRow + 1}`,
         valueInputOption: 'USER_ENTERED',
-        requestBody: { values: [['Presence', 'Location']] },
+        requestBody: { values: [['Presence', 'Time']] },
       })
     }
     await applyEmployeeFormatting(sheets, tab)
@@ -757,7 +757,7 @@ async function markAbsentForPastDays(sheets: any, tab: string, rows: any[]) {
     }
   }
 
-  // Advance one full employee block per iteration (2 cols for Presence+Location,
+  // Advance one full employee block per iteration (2 cols for Presence+Time,
   // 3 for legacy) so a filled pair is never re-read as an empty Presence cell —
   // stepping by 1 used to misalign Fridays after the first pass.
   const fillStep = isLegacy3 ? 3 : isAtt ? COLS_PER_EMPLOYEE : 1
@@ -776,18 +776,18 @@ async function markAbsentForPastDays(sheets: any, tab: string, rows: any[]) {
             rows[i][c + 1] = ''
             rows[i][c + 2] = ''
           } else {
-            rows[i][c] = `Absent - ${AUTO_ABSENT_TIME}`
-            rows[i][c + 1] = ''
-            rows[i][c + 2] = 'N/A'
+            rows[i][c] = 'Absent'
+            rows[i][c + 1] = AUTO_ABSENT_TIME
+            rows[i][c + 2] = ''
           }
         } else if (isAtt) {
-          // New 2-col: presence + location
+          // New 2-col: presence + time
           if (isFriday) {
             rows[i][c] = 'Holiday'
             rows[i][c + 1] = ''
           } else {
-            rows[i][c] = `Absent - ${AUTO_ABSENT_TIME}`
-            rows[i][c + 1] = 'N/A'
+            rows[i][c] = 'Absent'
+            rows[i][c + 1] = AUTO_ABSENT_TIME
           }
         } else {
           rows[i][c] = isFriday ? 'Holiday' : 'Absent'
@@ -975,7 +975,7 @@ async function applyEmployeeFormatting(sheets: any, tab: string) {
     if (i === 0) requests.push(bdrCell(1, sc, ['left']))
   }
 
-  // Bold all employee sub-header cells in row 1 (Date/Day/Presence/Time/Location)
+  // Bold all employee sub-header cells in row 1 (Date/Day/Presence/Time)
   const boldRow1: { row: number; col: number }[] = [{ row: 1, col: 0 }, { row: 1, col: 1 }]
   for (let i = 0; i < numEmps; i++) {
     const sc = 2 + i * COLS_PER_EMPLOYEE
@@ -1027,6 +1027,8 @@ async function applyEmployeeFormatting(sheets: any, tab: string) {
   console.log(`Applied formatting to "${tab}" (${numEmps} employees)`)
 }
 
+let migratedTabs = new Set<string>()
+
 async function loadGrid(sheets: any, tab: string) {
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: SPREADSHEET_ID,
@@ -1034,13 +1036,26 @@ async function loadGrid(sheets: any, tab: string) {
     valueRenderOption: 'FORMATTED_VALUE',
   })
   const rows = res.data.values || []
+  // One-time auto-migration: merged 'Status - Time' + Location → Presence + Time.
+  // Guarded per process+tab so page loads don't re-check every time.
+  if (!migratedTabs.has(tab)) {
+    migratedTabs.add(tab)
+    if (isMergedPresenceFormat(rows, findHeaderRow(rows))) {
+      try {
+        await migrateMergedToPresenceTime(sheets, tab)
+        return await loadGrid(sheets, tab) // re-read the migrated grid
+      } catch (e) {
+        console.warn(`Migration skipped for "${tab}":`, (e as Error).message)
+      }
+    }
+  }
   await markAbsentForPastDays(sheets, tab, rows)
   await updateAbsentSummary(sheets, tab, rows)
   return rows
 }
 
 /**
- * Returns { attended, status, time?, location? } for an employee on a given day.
+ * Returns { attended, status, time? } for an employee on a given day.
  */
 export async function getAttendance(employeeName: string, employeeEmail?: string, day?: number | string) {
   if (day === undefined) {
@@ -1056,36 +1071,31 @@ export async function getAttendance(employeeName: string, employeeEmail?: string
   await ensureEmployeeColumn(sheets, tab, employeeName, employeeEmail)
   const rows = await loadGrid(sheets, tab)
   const headerRow = findHeaderRow(rows)
-  const is3col = isAttendanceStructure(rows, headerRow)
+  const isAtt = isAttendanceStructure(rows, headerRow)
   const rowIdx = findDayRow(rows, headerRow, day)
   const colIdx = findEmployeeColumn(rows, headerRow, employeeName, employeeEmail)
 
-  if (is3col) {
-    const rawPresence = String(rows[rowIdx][colIdx] ?? '').trim()
-    if (!rawPresence) return { attended: false }
-    // Handle new 2-col format: 'Office - 12:00 AM'
-    const dashIdx = rawPresence.lastIndexOf(' - ')
+  if (isAtt) {
+    const status = String(rows[rowIdx][colIdx] ?? '').trim()
+    if (!status) return { attended: false }
+    // New format: pure status in col, time in col+1.
+    // Old merged format ('Office - 12:00 AM') still reads correctly pre-migration.
+    const dashIdx = status.lastIndexOf(' - ')
     if (dashIdx !== -1) {
-      const status = rawPresence.substring(0, dashIdx).trim()
-      const time = rawPresence.substring(dashIdx + 3).trim()
-      const location = String(rows[rowIdx][colIdx + 1] ?? '').trim()
-      return { attended: true, status, time, location }
+      return { attended: true, status: status.substring(0, dashIdx).trim(), time: status.substring(dashIdx + 3).trim() }
     }
-    // Handle legacy 3-col format: status in col, time in col+1, location in col+2
     const time = String(rows[rowIdx][colIdx + 1] ?? '').trim()
-    const location = String(rows[rowIdx][colIdx + 2] ?? '').trim()
-    return { attended: true, status: rawPresence, time, location }
+    return { attended: true, status, time }
   }
   const status = String(rows[rowIdx][colIdx] ?? '').trim()
   return status ? { attended: true, status } : { attended: false }
 }
 
 /**
- * Writes attendance to today's cell for the employee.
- * For 2-col: writes ["Status - Time", location].
- * For legacy 1-col: writes [status].
+ * Writes attendance for the employee on a day.
+ * Presence column = pure status, Time column = the time.
  */
-export async function markAttendance(employeeName: string, employeeEmail?: string, day?: number | string, status?: string, time?: string, location?: string) {
+export async function markAttendance(employeeName: string, employeeEmail?: string, day?: number | string, status?: string, time?: string) {
   if (status === undefined) {
     const maybeDay = employeeEmail
     const maybeStatus = day
@@ -1103,30 +1113,30 @@ export async function markAttendance(employeeName: string, employeeEmail?: strin
 
   let rows = await loadGrid(sheets, tab)
   let headerRow = findHeaderRow(rows)
-  let isNew = isAttendanceStructure(rows, headerRow)
-  if (!isNew) {
-    const migrated = await migrateToThreeCol(sheets, tab)
+  // The merged format ('Presence' = 'Status - Time' + a Location column) also
+  // satisfies isAttendanceStructure, so migrate whenever its Location header
+  // is detected — not just when the Presence header is missing.
+  if (isMergedPresenceFormat(rows, headerRow)) {
+    const migrated = await migrateMergedToPresenceTime(sheets, tab)
     if (migrated) {
       rows = await sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: tab, valueRenderOption: 'FORMATTED_VALUE' }).then(r => r.data.values || [])
       headerRow = findHeaderRow(rows)
-      isNew = true
     }
   }
+  const isNew = isAttendanceStructure(rows, headerRow)
 
   const rowIdx = findDayRow(rows, headerRow, day)
   const colIdx = findEmployeeColumn(rows, headerRow, employeeName, employeeEmail)
 
   const t = String(time || '').trim() || new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: TZ }).format(new Date())
-  const loc = String(location || '').trim() || 'N/A'
 
   if (isNew) {
-    const presenceVal = `${status} - ${t}`
     const range = `${tab}!${columnLetter(colIdx)}${rowIdx + 1}:${columnLetter(colIdx + 1)}${rowIdx + 1}`
     const written = await sheets.spreadsheets.values.update({
       spreadsheetId: SPREADSHEET_ID,
       range,
       valueInputOption: 'USER_ENTERED',
-      requestBody: { values: [[presenceVal, loc]] },
+      requestBody: { values: [[status, t]] },
     })
     return (written.data.updatedCells ?? 0) > 0
   }
@@ -1196,7 +1206,7 @@ export async function batchUpdateRawCells(tab: string, cells: { row: number; col
   return true
 }
 
-export async function batchUpdateAttendanceCells(tab: string, updates: { employeeName?: string; employeeEmail?: string; name?: string; email?: string; day: string; status: string; time?: string; location?: string }[]) {
+export async function batchUpdateAttendanceCells(tab: string, updates: { employeeName?: string; employeeEmail?: string; name?: string; email?: string; day: string; status: string; time?: string }[]) {
   if (!updates?.length) return true
   const sheets = await sheetsClient()
   const title = (tab || '').trim() || (await ensureMonthTab(sheets))
@@ -1226,26 +1236,20 @@ export async function batchUpdateAttendanceCells(tab: string, updates: { employe
     const colIdx = findEmployeeColumn(rows, headerRow, employeeName, employeeEmail)
     const rowIdx = findDayRow(rows, headerRow, Number(day) || day)
     if (is3col) {
-      // Merged format: 'Status - Time' in presence col, location in next col
+      // Presence col + Time col. Auto-time when status changes and no time given.
       let timeStr = String(u.time || '').trim()
       if (!timeStr) {
-        // Preserve existing time from the cell if status not changing, or auto-set for new status
-        const existingPresence = String(rows[rowIdx]?.[colIdx] ?? '').trim()
-        const dashIdx = existingPresence.lastIndexOf(' - ')
-        const existingTime = dashIdx !== -1 ? existingPresence.substring(dashIdx + 3).trim() : ''
-        const existingStatus = dashIdx !== -1 ? existingPresence.substring(0, dashIdx).trim() : existingPresence
+        const existingStatus = String(rows[rowIdx]?.[colIdx] ?? '').trim()
+        const existingTime = String(rows[rowIdx]?.[colIdx + 1] ?? '').trim()
         if (normalized && normalized !== existingStatus) {
-          // Status changed — use current time
           timeStr = new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: TZ }).format(new Date())
         } else if (existingTime) {
-          // Status unchanged — preserve existing time
           timeStr = existingTime
         }
       }
-      const presenceVal = normalized && timeStr ? `${normalized} - ${timeStr}` : normalized
       data.push({
         range: `${title}!${columnLetter(colIdx)}${rowIdx + 1}:${columnLetter(colIdx + 1)}${rowIdx + 1}`,
-        values: [[presenceVal, u.location || '']],
+        values: [[normalized, timeStr]],
       })
     } else {
       data.push({
@@ -1272,7 +1276,7 @@ export async function batchUpdateAttendanceCells(tab: string, updates: { employe
 
 /**
  * Returns the full grid for a tab (for admin).
- * For 2-col: reads merged Presence + Location per employee.
+ * For 2-col: reads Presence + Time per employee.
  */
 export async function getAdminGrid(tab: string) {
   const sheets = await sheetsClient()
@@ -1302,23 +1306,29 @@ export async function getAdminGrid(tab: string) {
     if (!Number.isInteger(d)) continue
     const values: Record<string, string> = {}
     const timeValues: Record<string, string> = {}
-    const locationValues: Record<string, string> = {}
     for (const emp of employees) {
       const c = findEmployeeColumn(rows, headerRow, emp)
       if (isLegacy) {
         // Legacy 3-col: separate status, time, location
         values[emp] = String(rows[i][c] ?? '').trim()
         timeValues[emp] = String(rows[i][c + 1] ?? '').trim()
-        locationValues[emp] = String(rows[i][c + 2] ?? '').trim()
       } else if (is3col) {
-        // New 2-col: merged 'Status - Time' in presence, location in next col
-        values[emp] = String(rows[i][c] ?? '').trim()
-        locationValues[emp] = String(rows[i][c + 1] ?? '').trim()
+        // Current 2-col: pure status in col, time in col+1.
+        // Old merged 'Status - Time' still parses pre-migration.
+        const v = String(rows[i][c] ?? '').trim()
+        const dashIdx = v.lastIndexOf(' - ')
+        if (dashIdx !== -1) {
+          values[emp] = v.substring(0, dashIdx).trim()
+          timeValues[emp] = v.substring(dashIdx + 3).trim()
+        } else {
+          values[emp] = v
+          timeValues[emp] = String(rows[i][c + 1] ?? '').trim()
+        }
       } else {
         values[emp] = String(rows[i][c] ?? '').trim()
       }
     }
-    days.push({ date: raw, day: String(rows[i][1] ?? '').trim(), values, timeValues, locationValues })
+    days.push({ date: raw, day: String(rows[i][1] ?? '').trim(), values, timeValues })
   }
   let absentDays: Record<string, number> = {}
   for (let i = headerRow + 1; i < rows.length; i++) {
@@ -1358,13 +1368,12 @@ export async function adminUpdateCell(tab: string, employeeName: string, dayLabe
 
   if (is3col) {
     const t = new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: TZ }).format(new Date())
-    const presenceVal = normalized ? `${normalized} - ${t}` : ''
     const range = `${title}!${columnLetter(colIdx)}${rowIdx + 1}:${columnLetter(colIdx + 1)}${rowIdx + 1}`
     await sheets.spreadsheets.values.update({
       spreadsheetId: SPREADSHEET_ID,
       range,
       valueInputOption: 'USER_ENTERED',
-      requestBody: { values: [[presenceVal, 'N/A']] },
+      requestBody: { values: [[normalized, t]] },
     })
   } else {
     const range = `${title}!${columnLetter(colIdx)}${rowIdx + 1}`
@@ -1419,7 +1428,7 @@ function parseMonthTitle(title: string): { year: number; month: number } | null 
 
 /**
  * Deletes and re-creates an attendance tab in the canonical structure
- * (Timestamp row / names row / Date+Day+Presence+Location headers / Absent Days row),
+ * (Timestamp row / names row / Date+Day+Presence+Time headers / Absent Days row),
  * then adds a 2-column block for every given employee and auto-fills
  * past days (Absent with AUTO_ABSENT_TIME, Fridays as Holiday).
  * Used to repair tabs that drifted into a legacy/mixed structure.
@@ -1452,7 +1461,7 @@ export async function recreateAttendanceTab(tab: string, employees: { name: stri
 }
 
 /**
- * Adds a 2-column Presence/Location block for an employee on an existing tab
+ * Adds a 2-column Presence/Time block for an employee on an existing tab
  * (used when a column was missed or the tab was created before the member existed).
  */
 export async function addEmployeeColumnToTab(tab: string, employeeName: string, employeeEmail: string) {

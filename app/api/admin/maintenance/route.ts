@@ -6,7 +6,7 @@ export const runtime = 'nodejs'
 /**
  * Admin-only sheet maintenance:
  *  - action=refresh  — re-run auto-absent fill + Absent Days summary on a tab
- *  - action=add-col  — add a 2-col Presence/Location block for one employee
+ *  - action=add-col  — add a 2-col Presence/Time block for one employee
  *  - action=rebuild  — delete + re-create the tab in the canonical structure
  *                      (repairs legacy/mixed structure; past days auto-filled)
  */
