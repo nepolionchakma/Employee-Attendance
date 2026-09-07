@@ -172,6 +172,7 @@ a {
   border-radius: 8px;
   background: var(--bg);
   color: var(--text-h);
+  cursor: pointer;
 }
 
 .attendance-employee {
@@ -914,6 +915,7 @@ a {
   align-items: center;
   gap: 18px;
   flex-wrap: wrap;
+  justify-content: space-between;
 }
 
 .navbar-brand {
@@ -977,18 +979,18 @@ a {
   margin-left: auto;
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   flex-wrap: wrap;
 }
 
 .navbar-user-name {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   font-size: 14px;
   font-weight: 500;
   color: var(--text-h);
-  max-width: 220px;
+  /* max-width: 220px; */
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1008,13 +1010,37 @@ a {
 }
 
 .navbar-logout {
-  padding: 8px 14px;
-  font-size: 14px;
+    padding: 4px 4px;
+    font-size: 14px;
 }
 
 .navbar-logout:hover {
   border-color: #e5484d;
   color: #e5484d;
+}
+
+/* On narrow/mobile screens hide the link label and show only the icon. */
+@media (max-width: 900px) {
+  .navbar-link {
+    padding: 8px 10px;
+    gap: 0;
+  }
+  .navbar-link-label {
+    display: none;
+  }
+  .navbar-user-name {
+    font-size: 13px;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    /* max-width: 140px; */
+  }
+  .navbar-logout {
+    padding: 8px 10px;
+  }
+  .navbar-logout .navbar-link-label {
+    display: none;
+  }
 }
 
 @media (prefers-color-scheme: dark) {
