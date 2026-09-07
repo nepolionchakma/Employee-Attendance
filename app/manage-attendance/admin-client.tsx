@@ -308,7 +308,7 @@ export default function AdminClient({ user }: { user: AdminClientUser }) {
         ) : (
           <>
             <div className="admin-table-wrap">
-              <table className="admin-table">
+              <table className="admin-table admin-attendance-table">
                 <thead>
                   <tr>
                     <th rowSpan={2}>Date</th>
