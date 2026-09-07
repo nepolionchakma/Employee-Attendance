@@ -248,7 +248,9 @@ a {
   border: 1px solid var(--border);
   border-radius: 12px;
   background: var(--social-bg);
-  /* Used by the sticky Date/Day columns + stacked header rows */
+}
+/* Attendance table only — sticky Date/Day columns + stacked header rows */
+.admin-table.admin-attendance-table {
   --admin-date-w: 56px;
   --admin-head1-h: 36px;
 }
@@ -304,45 +306,44 @@ a {
 }
 
 /* Sticky header rows — employee names + Presence/Location stay on top
-   while the day rows scroll underneath. Row 2 offset must match row 1's
-   fixed height, hence box-sizing + explicit height. */
-.admin-table thead th {
+   while the day rows scroll underneath. Only applies to the attendance view. */
+.admin-table.admin-attendance-table thead th {
   position: sticky;
 }
-.admin-table thead tr:first-child th {
+.admin-table.admin-attendance-table thead tr:first-child th {
   top: 0;
   height: var(--admin-head1-h);
   box-sizing: border-box;
   z-index: 5;
 }
-.admin-table thead tr:nth-child(2) th {
+.admin-table.admin-attendance-table thead tr:nth-child(2) th {
   top: var(--admin-head1-h);
   z-index: 5;
 }
 
 /* Sticky Date + Day columns — stay visible while employee columns scroll.
-   Raw-sheets view only pins its row-number column. */
-.admin-table td:first-child,
-.admin-table thead tr:first-child th:first-child {
+   Only applies to the attendance table (not members or raw sheets). */
+.admin-table.admin-attendance-table td:first-child,
+.admin-table.admin-attendance-table thead tr:first-child th:first-child {
   position: sticky;
   left: 0;
   background: var(--bg);
   z-index: 4;
 }
-.admin-table:not(.admin-raw-table) td:nth-child(2),
-.admin-table:not(.admin-raw-table) thead tr:first-child th:nth-child(2) {
+.admin-table.admin-attendance-table td:nth-child(2),
+.admin-table.admin-attendance-table thead tr:first-child th:nth-child(2) {
   position: sticky;
   left: var(--admin-date-w);
   background: var(--bg);
   z-index: 4;
 }
 /* Corner cells (Date/Day headers) sit above everything */
-.admin-table thead tr:first-child th:first-child,
-.admin-table:not(.admin-raw-table) thead tr:first-child th:nth-child(2) {
+.admin-table.admin-attendance-table thead tr:first-child th:first-child,
+.admin-table.admin-attendance-table thead tr:first-child th:nth-child(2) {
   z-index: 6;
 }
-.admin-table:not(.admin-raw-table) .admin-date,
-.admin-table:not(.admin-raw-table) .admin-day {
+.admin-table.admin-attendance-table .admin-date,
+.admin-table.admin-attendance-table .admin-day {
   width: var(--admin-date-w);
   min-width: var(--admin-date-w);
   max-width: var(--admin-date-w);
@@ -508,8 +509,8 @@ a {
 
 /* Pinned Date/Day cells must be OPAQUE (pre-blended Friday tint over --bg),
    otherwise scrolled employee data shows through them. */
-.admin-table:not(.admin-raw-table) .admin-row-friday td:first-child,
-.admin-table:not(.admin-raw-table) .admin-row-friday td:nth-child(2) {
+.admin-table.admin-attendance-table .admin-row-friday td:first-child,
+.admin-table.admin-attendance-table .admin-row-friday td:nth-child(2) {
   background: rgb(255, 242, 219); /* rgba(255,165,0,.14) over #fff */
 }
 
@@ -517,8 +518,8 @@ a {
   .admin-row-friday td {
     background: rgba(255, 165, 0, 0.06);
   }
-  .admin-table:not(.admin-raw-table) .admin-row-friday td:first-child,
-  .admin-table:not(.admin-raw-table) .admin-row-friday td:nth-child(2) {
+  .admin-table.admin-attendance-table .admin-row-friday td:first-child,
+  .admin-table.admin-attendance-table .admin-row-friday td:nth-child(2) {
     background: rgb(50, 40, 26); /* rgba(255,165,0,.12) over #16171d */
   }
 }
@@ -871,7 +872,7 @@ a {
 }
 
 .admin-table tbody tr:hover td:first-child,
-.admin-table:not(.admin-raw-table) tbody tr:hover td:nth-child(2) {
+.admin-table.admin-attendance-table tbody tr:hover td:nth-child(2) {
   background: var(--code-bg);
 }
 

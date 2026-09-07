@@ -19,6 +19,10 @@ yarn dev
 Open http://localhost:3000 and sign in with an email listed in the **Members**
 tab of your spreadsheet.
 
+> **Credentials:** Use either `service-account.json` in the project root, or set
+> `GOOGLE_SERVICE_ACCOUNT_JSON` / `GOOGLE_SERVICE_ACCOUNT_JSON_BASE64` in `.env`.
+> See [Google Cloud setup](#google-cloud-setup-detailed) for full instructions.
+
 > 📖 **This is Version 4** — setup guide, sheet structure, deployment,
 > testing, troubleshooting below.
 
@@ -51,13 +55,16 @@ tab of your spreadsheet.
 |---|---|---|
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Yes | Google OAuth client (login) |
 | `SPREADSHEET_ID` | Yes | From the spreadsheet URL |
-| `GOOGLE_SERVICE_ACCOUNT_JSON` | Yes | Service account JSON string (or base64 via `_BASE64`, or `service-account.json` in the project root) |
+| `GOOGLE_SERVICE_ACCOUNT_JSON` | Yes* | Service account JSON string (or base64 via `_BASE64`, or `service-account.json` in the project root) |
+| `GOOGLE_SERVICE_ACCOUNT_JSON_BASE64` | Yes* | Base64-encoded service account JSON (alternative to `GOOGLE_SERVICE_ACCOUNT_JSON`) |
 | `SESSION_SECRET` | Yes | Random string for JWT signing (`openssl rand -base64 32`) |
 | `AUTO_ABSENT_TIME` | No | Time written into auto-absent cells (default `12:00 AM`) |
 | `NEXT_PUBLIC_AUTO_ABSENT_TIME` | No | Same value for the admin panel auto-fill — keep in sync |
 | `ATTENDANCE_SHEET_TAB` | No | Pin a fixed tab instead of the auto month tab |
 | `EMPLOYEES_SHEET_TAB` | No | Members tab name (default `Members`) |
 | `GOOGLE_ALLOWED_DOMAINS` | No | Restrict login to specific email domains |
+
+*Either `GOOGLE_SERVICE_ACCOUNT_JSON` or `GOOGLE_SERVICE_ACCOUNT_JSON_BASE64` (or the `service-account.json` file) is required for Google Sheets access.|" }
 
 ## Scripts
 
@@ -68,12 +75,123 @@ tab of your spreadsheet.
 | `yarn lint` | ESLint |
 | `yarn verify:absent` | End-to-end test of auto-absent + submit (runs on a scratch tab, live data untouched) |
 
-## Google Cloud setup (summary)
+## Google Cloud setup (detailed)
 
-1. Enable **Google Sheets API**
-2. Create an **OAuth client** (Web application) — redirect URI: `http://localhost:3000/api/auth/callback`
-3. Create a **service account**, download the JSON key as `service-account.json`
-4. **Share the spreadsheet with the service account as Editor** — without this, writes fail with "The caller does not have permission"
+### 1. Enable Google Sheets API
+
+1. Go to [Google Cloud Console](https://console.cloud.google.com/)
+2. Select or create a project
+3. Navigate to **APIs & Services → Library**
+4. Search for **Google Sheets API** and enable it
+
+### 2. Create OAuth Client (for user login)
+
+1. Go to **APIs & Services → Credentials**
+2. Click **Create Credentials → OAuth client ID**
+3. Application type: **Web application**
+4. Name: `Attendance App (Local)` or similar
+5. Authorized redirect URIs: 
+   - `http://localhost:3000/api/auth/callback` (for local dev)
+   - Add production URL if deploying (e.g. `https://your-app.vercel.app/api/auth/callback`)
+6. Copy the **Client ID** and **Client Secret** into your `.env`:
+   ```env
+   GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
+   GOOGLE_CLIENT_SECRET=your-client-secret
+   ```
+
+### 3. Create Service Account (for Google Sheets access)
+
+1. Go to **IAM & Admin → Service Accounts**
+2. Click **Create Service Account**
+3. Name: `attendance-app-sheets` or similar
+4. Grant this service account access to the project: **None** (no need for project-level roles)
+5. Click **Done**
+6. Click on the newly created service account
+7. Go to the **Keys** tab
+8. Click **Add Key → Create new key → JSON**
+9. A JSON file will download — this is your `service-account.json`
+
+### 4. Share Spreadsheet with Service Account
+
+1. Open your Google Sheets spreadsheet
+2. Click the **Share** button (top right)
+3. Add the service account email (found in the JSON file as `client_email`)
+4. Set permission to **Editor**
+5. Click **Share**
+
+> ⚠️ **Without this step, writes fail with "The caller does not have permission"**
+
+### 5. Configure Credentials (choose one method)
+
+#### Option A — JSON file (local development)
+
+Place the downloaded `service-account.json` in the project root:
+
+```
+your-project/
+├── service-account.json   # downloaded from Google Cloud
+├── .env                   # environment variables
+└── ...
+```
+
+The app automatically reads it from `./service-account.json`. This file is in `.gitignore`, so it won't be committed.
+
+#### Option B — JSON string (environment variable)
+
+Copy the full JSON content and set it as `GOOGLE_SERVICE_ACCOUNT_JSON`:
+
+```env
+GOOGLE_SERVICE_ACCOUNT_JSON={"type":"service_account","project_id":"...","private_key_id":"...","private_key":"...","client_email":"...@...","client_id":"...","auth_uri":"...","token_uri":"...","auth_provider_x509_cert_url":"...","client_x509_cert_url":"..."}
+```
+
+#### Option C — Base64 encoded (recommended for production)
+
+Encode the JSON to base64 and set `GOOGLE_SERVICE_ACCOUNT_JSON_BASE64`:
+
+**On Mac/Linux:**
+```bash
+base64 -i service-account.json
+# or: cat service-account.json | base64
+```
+
+**On Windows (PowerShell):**
+```powershell
+[Convert]::ToBase64String([IO.File]::ReadAllBytes("service-account.json"))
+```
+
+**On Windows (Git Bash):**
+```bash
+base64 < service-account.json
+```
+
+Then add the output to your `.env`:
+
+```env
+GOOGLE_SERVICE_ACCOUNT_JSON_BASE64=eyJhbGciOiJSUzI1NiIsImtpZCI6...
+```
+
+Copy the same value to your production host (e.g. Vercel Environment Variables).
+
+### 6. Set Other Environment Variables
+
+```env
+SPREADSHEET_ID=1ABCdefGHIjklMnoPQRstuvWxyZ
+SESSION_SECRET=openssl rand -base64 32
+```
+
+Generate a secure session secret:
+```bash
+openssl rand -base64 32
+```
+
+### 7. Verify Setup
+
+Start the dev server and check for errors:
+```bash
+yarn dev
+```
+
+If credentials are correct, you should see no errors related to Google Auth.|" }
 
 ## Architecture
 
@@ -178,15 +296,21 @@ All the same as development, plus:
 |---|---|
 | "The caller does not have permission" | Share spreadsheet with service account as Editor |
 | Login fails | Check `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` and allowed domains |
-| Attendance not saving | Verify `SPREADSHEET_ID` and service account JSON |
+| Attendance not saving | Verify `SPREADSHEET_ID` and service account JSON (or base64) |
 | Sticky columns not working | Ensure `--admin-date-w` and `--admin-head1-h` are defined in CSS |
 | Auto-absent not triggering | Check `AUTO_ABSENT_TIME` env var and service account permissions |
+| Base64 credentials not working | Verify the base64 string is correct — decode with `echo <BASE64> | base64 -d` and check it's valid JSON |
+| "Service account file not found" error | Either add `service-account.json` to project root, or set `GOOGLE_SERVICE_ACCOUNT_JSON` / `GOOGLE_SERVICE_ACCOUNT_JSON_BASE64` env var |
 
 ## Changelog — Version 4
+
+Compared to Version 3:
 
 - **Sticky Day column**: Date and Day columns both sticky in admin attendance table
 - **CSS custom properties**: `--admin-date-w` and `--admin-head1-h` now active (were commented out in v3)
 - **Improved admin table UX**: Friday highlighting, dirty cell indicators, pending changes badge
+- **Base64 credentials support**: Added `GOOGLE_SERVICE_ACCOUNT_JSON_BASE64` env var option (documented in this version)
+- **Updated documentation**: This `version04.md` replaces `Version 3.md` with full setup guide including base64 config
 
 ## License
 
