@@ -4,7 +4,18 @@ import AttendanceForm from './attendance-form'
 import Navbar from './components/Navbar'
 import HomeSummaryTable from './components/HomeSummaryTable'
 
-export const metadata = { title: 'Attendance' }
+export const metadata = {
+  title: 'Datafluent BD — Online Daily Attendance Management',
+  description:
+    'Track daily attendance for students, teachers, and staff. Record office and home presence, view monthly summaries, and manage attendance online from any device.',
+  keywords: ['Datafluent BD attendance', 'attendance management', 'online attendance', 'daily attendance', 'staff attendance', 'student attendance', 'employee attendance'],
+  openGraph: {
+    title: 'Datafluent BD — Online Daily Attendance Management',
+    description:
+      'Track daily attendance for students, teachers, and staff. Record office and home presence, view monthly summaries, and manage attendance online from any device.',
+    type: 'website',
+  },
+}
 
 interface SummaryStat {
   employee: string
