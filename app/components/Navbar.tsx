@@ -72,12 +72,12 @@ export default function Navbar({ user }: { user: NavbarUser }) {
         </Link>
 
         <div className="navbar-links">
-          <Link href="/" className={`navbar-link ${isHome ? 'active' : ''}`}>
-            <HomeIcon />
-            <span className="navbar-link-label">Home</span>
-          </Link>
           {user.isAdmin && (
             <>
+              <Link href="/" className={`navbar-link ${isHome ? 'active' : ''}`}>
+                <HomeIcon />
+                <span className="navbar-link-label">Home</span>
+              </Link>
               <Link href="/manage-attendance" className={`navbar-link ${pathname === '/manage-attendance' ? 'active' : ''}`}>
                 <ManageAttendance />
                 <span className="navbar-link-label">Manage Attendance</span>
