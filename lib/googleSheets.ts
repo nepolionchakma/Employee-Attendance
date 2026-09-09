@@ -236,16 +236,54 @@ export function clearEmployeesCache() {
   employeesCacheAt = 0
 }
 
+/**
+ * 0-based indexes of member data rows: every row after the header that has
+ * any content. Blank gap rows (left by past bad appends or manual deletes)
+ * are skipped so a member's list index always maps to the right physical row.
+ */
+function memberDataRowIndexes(rows: any[]) {
+  const idxs: number[] = []
+  for (let i = 1; i < rows.length; i++) {
+    const r = rows[i] || []
+    if (r.some((cell: any) => String(cell ?? '').trim() !== '')) idxs.push(i)
+  }
+  return idxs
+}
+
+async function readEmployeesGrid(sheets: any, tab: string) {
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: SPREADSHEET_ID,
+    range: `${tab}!A1:E`,
+    valueRenderOption: 'FORMATTED_VALUE',
+  })
+  return res.data.values || []
+}
+
 export async function addEmployee({ name, email, phone = '', role = 'Employee', address = '' }: { name?: string; email: string; phone?: string; role?: string; address?: string }) {
   if (!email || !email.includes('@')) throw new Error('Valid Gmail is required')
   const sheets = await sheetsClient()
   const tab = await ensureEmployeesSheet()
-  await sheets.spreadsheets.values.append({
+  // Write explicitly at the first empty row after the last data row, starting
+  // at column A. values.append is intentionally NOT used here: its automatic
+  // table detection misfires on tabs with blank gap rows and silently shifted
+  // new members to column D instead of A.
+  const rows = await readEmployeesGrid(sheets, tab)
+  let writeRow = Math.max(rows.length, 2) // 1-based; falls back to row 2 on a header-only tab
+  for (let i = rows.length - 1; i >= 1; i--) {
+    const r = rows[i] || []
+    if (r.some((cell: any) => String(cell ?? '').trim() !== '')) {
+      writeRow = i + 2 // first row after the last non-empty one
+      break
+    }
+  }
+  const values = [[String(name || '').trim() || email.split('@')[0], String(email).trim(), String(phone).trim(), normalizeRole(role), String(address).trim()]]
+  await sheets.spreadsheets.values.update({
     spreadsheetId: SPREADSHEET_ID,
-    range: `${tab}!A:E`,
-    valueInputOption: 'USER_ENTERED',
-    insertDataOption: 'INSERT_ROWS',
-    requestBody: { values: [[String(name || '').trim() || email.split('@')[0], String(email).trim(), String(phone).trim(), normalizeRole(role), String(address).trim()]] },
+    range: `${tab}!A${writeRow}:E${writeRow}`,
+    // RAW, not USER_ENTERED: USER_ENTERED parses phone numbers like '01712345678'
+    // as numbers and strips the leading zero.
+    valueInputOption: 'RAW',
+    requestBody: { values },
   })
   clearEmployeesCache()
   return true
@@ -254,12 +292,19 @@ export async function addEmployee({ name, email, phone = '', role = 'Employee', 
 export async function updateEmployee(rowIndex: number, { name, email, phone, role, address }: { name: string; email: string; phone: string; role: string; address?: string }) {
   const sheets = await sheetsClient()
   const tab = await ensureEmployeesSheet()
-  const sheetRow = rowIndex + 2
+  // The UI index counts only non-empty data rows — resolve the physical sheet
+  // row instead of assuming rowIndex+2, which breaks when blank gap rows exist.
+  const rows = await readEmployeesGrid(sheets, tab)
+  const dataRows = memberDataRowIndexes(rows)
+  const target = dataRows[rowIndex]
+  if (target === undefined) throw new Error(`Member row ${rowIndex} not found in the ${tab} sheet`)
+  const sheetRow = target + 1
   const values = [[String(name || '').trim(), String(email || '').trim(), String(phone || '').trim(), normalizeRole(role), String(address || '').trim()]]
   await sheets.spreadsheets.values.update({
     spreadsheetId: SPREADSHEET_ID,
     range: `${tab}!A${sheetRow}:E${sheetRow}`,
-    valueInputOption: 'USER_ENTERED',
+    // RAW for the same reason as addEmployee: preserve leading zeros in phones.
+    valueInputOption: 'RAW',
     requestBody: { values },
   })
   clearEmployeesCache()
@@ -271,7 +316,13 @@ export async function deleteEmployee(rowIndex: number) {
   const tab = await ensureEmployeesSheet()
   const sheetId = await sheetIdFor(sheets, tab)
   if (sheetId == null) throw new Error('Employees sheet not found')
-  const sheetRow = rowIndex + 2
+  // Same as updateEmployee: resolve the physical row from the non-empty data
+  // rows so blank gap rows don't shift the delete onto the wrong member.
+  const rows = await readEmployeesGrid(sheets, tab)
+  const dataRows = memberDataRowIndexes(rows)
+  const target = dataRows[rowIndex]
+  if (target === undefined) throw new Error(`Member row ${rowIndex} not found in the ${tab} sheet`)
+  const sheetRow = target + 1
   await sheets.spreadsheets.batchUpdate({
     spreadsheetId: SPREADSHEET_ID,
     requestBody: {
