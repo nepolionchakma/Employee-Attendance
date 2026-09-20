@@ -15,7 +15,7 @@ interface CheckState {
 }
 
 export default function AttendanceForm({ employeeName, employeeEmail }: AttendanceFormProps) {
-  const [status, setStatus] = useState('Office')
+  const [status, setStatus] = useState('On-site')
   const [check, setCheck] = useState<CheckState | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const router = useRouter()
@@ -83,7 +83,7 @@ export default function AttendanceForm({ employeeName, employeeEmail }: Attendan
     }
   }
 
-  const statusOptions = ['Office', 'Home']
+  const statusOptions = ['On-site', 'Remote']
 
   // Locked once attendance is recorded — either detected on load (already)
   // or right after a successful submit (success) — until the page is reloaded.

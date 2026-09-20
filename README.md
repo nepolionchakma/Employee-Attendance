@@ -1,7 +1,7 @@
 # Attendance App (v3)
 
 Employees sign in with their Google account, then mark today's attendance
-(Office / Home). Records live in a Google Sheets spreadsheet. Admins manage
+(On-site / Remote). Records live in a Google Sheets spreadsheet. Admins manage
 attendance and members from a built-in dashboard.
 
 ```
@@ -40,7 +40,7 @@ tab of your spreadsheet.
 | `Members` | Directory: Full Name, Gmail, Phone, Role (`Admin`/`Employee`), Address |
 | `September 2026` (auto) | One **Presence + Time** column pair per member, one row per day, COUNTIF `Absent Days` row |
 
-- Presence holds the pure status (`Office` / `Home` / `Absent` / `Holiday`); Time holds e.g. `9:00 AM`
+- Presence holds the pure status (`On-site` / `Remote` / `Absent` / `Holiday`); Time holds e.g. `9:00 AM`
 - Fridays auto-fill as `Holiday`
 - Roles come from the Members tab (`Role` = `Admin` or `Employee`)
 

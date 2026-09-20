@@ -32,7 +32,7 @@ The app reads from a Google Sheet. Administrative setup usually includes:
 
 - Ensuring the sheet has a header row with emails or names.
 - Making sure each column represents a person.
-- Verifying that the sheet includes “Office” and “Home” attendance markers (or similar values the app recognizes).
+- Verifying that the sheet includes “On-site” and “Remote” attendance markers (or similar values the app recognizes).
 
 If the sheet isn’t set up yet, the dashboard will show a message like “Attendance summary not available (sheets not configured).”
 
@@ -72,6 +72,6 @@ If you need help with sheet setup or admin permissions, contact the person who p
 
 ## Notes
 
-- Attendance values like “Office”, “Home”, “Office - ...”, and “Home - ...” are treated as present.
+- Attendance values like “On-site”, “Remote”, “On-site - ...”, and “Remote - ...” are treated as present.
 - Absent days are tracked separately in the sheet.
 - The month label comes from the sheet’s tab name.

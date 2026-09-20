@@ -57,7 +57,7 @@ export default async function HomePage() {
           if (header) {
             for (const d of days) {
               const v = String(d.values?.[header] || '').trim()
-              if (v === 'Office' || v === 'Home' || v.startsWith('Office - ') || v.startsWith('Home - ')) present++
+              if (v === 'On-site' || v === 'Remote' || v.startsWith('On-site - ') || v.startsWith('Remote - ')) present++
             }
             absent = Number((absentDays as Record<string, number>)[header] ?? 0)
           }
@@ -87,7 +87,7 @@ export default async function HomePage() {
         {summary ? (
           <div className="card home-summary-card">
             <div className="home-summary-header">
-              <h3>{user.isAdmin ? 'Attendance' : 'Your Attendance'} — {summary.monthLabel}</h3>
+              <h3>{user.isAdmin ? 'Attendance' : 'My Attendance'} - {summary.monthLabel}</h3>
               <span className="home-summary-sub">
                 {user.isAdmin ? 'Current month summary for all employees' : 'Your current month summary'}
               </span>

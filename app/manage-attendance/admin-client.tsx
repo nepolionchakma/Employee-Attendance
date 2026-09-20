@@ -3,7 +3,7 @@
 import React, { useEffect, useState, useCallback, useMemo } from 'react'
 import { shortName } from '@/lib/utils'
 
-const STATUS_OPTIONS = ['', 'Office', 'Home', 'Absent']
+const STATUS_OPTIONS = ['', 'On-site', 'Remote', 'Absent']
 
 // Mirror of lib/googleSheets AUTO_ABSENT_TIME — kept in sync for the client.
 const AUTO_ABSENT_TIME = (process.env.NEXT_PUBLIC_AUTO_ABSENT_TIME || '12:00 AM').trim() || '12:00 AM'
@@ -19,7 +19,7 @@ function formatSystemTime() {
 
 function previewTime(status: string) {
   if (status === 'Absent') return AUTO_ABSENT_TIME
-  if (status === 'Office' || status === 'Home') return formatSystemTime()
+  if (status === 'On-site' || status === 'Remote') return formatSystemTime()
   return ''
 }
 
@@ -49,10 +49,10 @@ interface AdminClientUser {
 
 function statusClass(s: string) {
   const v = String(s || '').trim()
-  if (v === 'Office' || v.startsWith('Office - ')) return 'admin-cell-office'
-  if (v === 'Home' || v.startsWith('Home - ')) return 'admin-cell-home'
+  if (v === 'On-site' || v.startsWith('On-site - ')) return 'admin-cell-onsite'
+  if (v === 'Remote' || v.startsWith('Remote - ')) return 'admin-cell-remote'
   if (v === 'Absent' || v.startsWith('Absent - ')) return 'admin-cell-absent'
-  if (v === 'Holiday') return 'admin-cell-office'
+  if (v === 'Holiday') return 'admin-cell-onsite'
   return 'admin-cell-empty'
 }
 
@@ -161,7 +161,7 @@ export default function AdminClient({ user }: { user: AdminClientUser }) {
     setPendingAttendance((prev) => {
       const existing = prev[key] || { employeeName, day: date, status: '', time: '' }
       if (field === 'status') {
-        // Auto-fill time when status changes: system time for Office/Home, custom absent time for Absent
+        // Auto-fill time when status changes: system time for On-site/Remote, custom absent time for Absent
         const autoTime = value === 'Absent' ? AUTO_ABSENT_TIME : value ? formatSystemTime() : ''
         return { ...prev, [key]: { ...existing, status: value, time: autoTime } }
       }
