@@ -5,7 +5,7 @@ import { getSessionUser } from '@/lib/auth'
 
 export const runtime = 'nodejs'
 
-const VALID_STATUSES = ['Office', 'Home']
+const VALID_STATUSES = ['On-site', 'Remote']
 
 export async function POST(request: NextRequest) {
   const user = await getSessionUser()
@@ -16,7 +16,7 @@ export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => ({}))
   const employeeEmail = String(body?.employeeEmail || body?.email || user.email || '').trim().toLowerCase()
   const employeeName = String(body?.employeeName || body?.name || user.name || '').trim()
-  const status = String(body?.status || 'Office').trim()
+  const status = String(body?.status || 'On-site').trim()
   const time = String(body?.time || '').trim()
 
   if (!employeeEmail && !employeeName) {

@@ -118,8 +118,8 @@ if (mode === 'setup') {
 if (mode === 'submit') {
   // Runs with ATTENDANCE_SHEET_TAB=<scratch> so all writes stay on the scratch tab
   const mod = await import('../lib/googleSheets.ts')
-  await mod.markAttendance('Test User', 'testuser.verify@gmail.com', today, 'Office', '2:45 PM')
-  await mod.markAttendance('Arup Das', 'arupdas@gmail.com', today, 'Home', '9:05 AM')
+  await mod.markAttendance('Test User', 'testuser.verify@gmail.com', today, 'On-site', '2:45 PM')
+  await mod.markAttendance('Arup Das', 'arupdas@gmail.com', today, 'Remote', '9:05 AM')
   const got = await mod.getAttendance('Test User', 'testuser.verify@gmail.com', today)
   const gotPast = await mod.getAttendance('Test User', 'testuser.verify@gmail.com', 1)
   const gotMember = await mod.getAttendance('Arup Das', 'arupdas@gmail.com', today)
@@ -136,15 +136,15 @@ if (mode === 'check') {
   const testCol = rows[0].findIndex((h) => cell(h).includes('testuser.verify@gmail.com'))
   const memberCol = rows[0].findIndex((h) => cell(h).includes('arupdas@gmail.com'))
 
-  ok(cell(rows[rToday][testCol]) === 'Office', `4. submit writes Presence "Office" (got "${cell(rows[rToday][testCol])}")`)
+  ok(cell(rows[rToday][testCol]) === 'On-site', `4. submit writes Presence "On-site" (got "${cell(rows[rToday][testCol])}")`)
   ok(cell(rows[rToday][testCol + 1]) === '2:45 PM', `4. submit writes Time "2:45 PM" (got "${cell(rows[rToday][testCol + 1])}")`)
-  ok(cell(rows[rToday][memberCol]) === 'Home', `4b. member Presence "Home" (got "${cell(rows[rToday][memberCol])}")`)
+  ok(cell(rows[rToday][memberCol]) === 'Remote', `4b. member Presence "Remote" (got "${cell(rows[rToday][memberCol])}")`)
   ok(cell(rows[rToday][memberCol + 1]) === '9:05 AM', `4b. member Time "9:05 AM" (got "${cell(rows[rToday][memberCol + 1])}")`)
 
   const out = JSON.parse(process.env.SUBMIT_OUT || '{}')
-  ok(out.got?.attended && out.got?.status === 'Office' && out.got?.time === '2:45 PM' && out.got?.location === undefined, `5. getAttendance(today) -> ${JSON.stringify(out.got)}`)
+  ok(out.got?.attended && out.got?.status === 'On-site' && out.got?.time === '2:45 PM' && out.got?.location === undefined, `5. getAttendance(today) -> ${JSON.stringify(out.got)}`)
   ok(out.gotPast?.attended && out.gotPast?.status === 'Absent' && out.gotPast?.time === AUTO, `5. getAttendance(past) -> ${JSON.stringify(out.gotPast)}`)
-  ok(out.gotMember?.attended && out.gotMember?.status === 'Home' && out.gotMember?.time === '9:05 AM', `5b. getAttendance(member) -> ${JSON.stringify(out.gotMember)}`)
+  ok(out.gotMember?.attended && out.gotMember?.status === 'Remote' && out.gotMember?.time === '9:05 AM', `5b. getAttendance(member) -> ${JSON.stringify(out.gotMember)}`)
 
   const absentRow = rows.find((r) => cell(r[0]) === 'Absent Days')
   ok(absentRow && absentRow.length > 0, '6. Absent Days row present')

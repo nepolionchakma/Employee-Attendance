@@ -131,7 +131,7 @@ export async function ensureEmployeesSheet() {
           employeesCache = null
         }
       }
-    } catch (_e) {}
+    } catch (_e) { }
     return desired
   }
   await sheets.spreadsheets.batchUpdate({
@@ -161,7 +161,7 @@ export async function ensureEmployeesSheet() {
         requestBody: { values: rows },
       })
     }
-  } catch (_e) {}
+  } catch (_e) { }
   employeesCache = null
   return desired
 }
@@ -669,7 +669,7 @@ function findEmployeeColumn(rows: any[], headerRow: number, employeeName: string
     const key = employeeEmail || employeeName
     throw new Error(
       `Employee "${key}" not found in the sheet headers. ` +
-        'Add a column with that exact name, or fix the name in lib/employees.',
+      'Add a column with that exact name, or fix the name in lib/employees.',
     )
   }
   // No email — fall back to name matching (only safe when email is not available)
@@ -687,7 +687,7 @@ function findEmployeeColumn(rows: any[], headerRow: number, employeeName: string
   const key = employeeEmail || employeeName
   throw new Error(
     `Employee "${key}" not found in the sheet headers. ` +
-      'Add a column with that exact name, or fix the name in lib/employees.',
+    'Add a column with that exact name, or fix the name in lib/employees.',
   )
 }
 
@@ -731,10 +731,10 @@ async function ensureEmployeeColumn(sheets: any, tab: string, employeeName: stri
     }
   }
 
-    if (name && !email) {
-      const existsName = rows[namesRow].some((h: any) => parseHeaderName(String(h || '').trim()).toLowerCase() === name.toLowerCase())
-      if (existsName) return
-    }
+  if (name && !email) {
+    const existsName = rows[namesRow].some((h: any) => parseHeaderName(String(h || '').trim()).toLowerCase() === name.toLowerCase())
+    if (existsName) return
+  }
 
   const hasExistingEmpCols = (rows[headerRow]?.length ?? 0) > 2
   const isNew = isAttendanceStructure(rows, headerRow) || !hasExistingEmpCols
@@ -1130,7 +1130,7 @@ export async function getAttendance(employeeName: string, employeeEmail?: string
     const status = String(rows[rowIdx][colIdx] ?? '').trim()
     if (!status) return { attended: false }
     // New format: pure status in col, time in col+1.
-    // Old merged format ('Office - 12:00 AM') still reads correctly pre-migration.
+    // Old merged format ('On-site - 12:00 AM') still reads correctly pre-migration.
     const dashIdx = status.lastIndexOf(' - ')
     if (dashIdx !== -1) {
       return { attended: true, status: status.substring(0, dashIdx).trim(), time: status.substring(dashIdx + 3).trim() }
@@ -1151,7 +1151,7 @@ export async function markAttendance(employeeName: string, employeeEmail?: strin
     const maybeDay = employeeEmail
     const maybeStatus = day
     const isDay = typeof maybeDay === 'number' || (typeof maybeDay === 'string' && /^\d+$/.test(String(maybeDay).trim()))
-    const isStatus = typeof maybeStatus === 'string' && ['', 'Office', 'Home', 'Absent'].includes(String(maybeStatus).trim())
+    const isStatus = typeof maybeStatus === 'string' && ['', 'On-site', 'Remote', 'Absent'].includes(String(maybeStatus).trim())
     if (isDay && isStatus) {
       status = maybeStatus
       day = maybeDay
@@ -1273,7 +1273,7 @@ export async function batchUpdateAttendanceCells(tab: string, updates: { employe
   const headerRow = findHeaderRow(rows)
   const is3col = isAttendanceStructure(rows, headerRow)
   const step = is3col ? COLS_PER_EMPLOYEE : 1
-  const allowed = ['', 'Office', 'Home', 'Absent']
+  const allowed = ['', 'On-site', 'Remote', 'Absent']
 
   const data = []
   for (const u of updates) {
@@ -1411,7 +1411,7 @@ export async function adminUpdateCell(tab: string, employeeName: string, dayLabe
   const colIdx = findEmployeeColumn(rows, headerRow, employeeName, employeeEmail)
   const rowIdx = findDayRow(rows, headerRow, Number(dayLabel) || dayLabel)
 
-  const allowed = ['', 'Office', 'Home', 'Absent']
+  const allowed = ['', 'On-site', 'Remote', 'Absent']
   const normalized = String(status ?? '').trim()
   if (!allowed.includes(normalized)) {
     throw new Error(`status must be one of: ${allowed.filter(Boolean).join(', ')} or empty`)

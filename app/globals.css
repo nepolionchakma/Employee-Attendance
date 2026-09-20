@@ -427,18 +427,18 @@ a {
   opacity: 0.6;
 }
 
-.admin-cell-office .admin-cell-select {
+.admin-cell-onsite .admin-cell-select {
   border-color: #22c55e;
 }
-.admin-cell-office .admin-cell-select option {
+.admin-cell-onsite .admin-cell-select option {
   background: #f0fdf4;
   color: #15803d;
 }
 
-.admin-cell-home .admin-cell-select {
+.admin-cell-remote .admin-cell-select {
   border-color: #3b82f6;
 }
-.admin-cell-home .admin-cell-select option {
+.admin-cell-remote .admin-cell-select option {
   background: #eff6ff;
   color: #1d4ed8;
 }
@@ -453,11 +453,11 @@ a {
 }
 
 @media (prefers-color-scheme: dark) {
-  .admin-cell-office .admin-cell-select option {
+  .admin-cell-onsite .admin-cell-select option {
     background: #052e16;
     color: #86efac;
   }
-  .admin-cell-home .admin-cell-select option {
+  .admin-cell-remote .admin-cell-select option {
     background: #1e3a5f;
     color: #93c5fd;
   }

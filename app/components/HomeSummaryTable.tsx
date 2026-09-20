@@ -16,6 +16,7 @@ interface StatRow {
 interface HomeSummaryUser {
   name: string
   email: string
+  isAdmin: boolean
 }
 
 export default function HomeSummaryTable({ stats, user }: { stats: StatRow[]; user: HomeSummaryUser }) {
@@ -53,7 +54,7 @@ export default function HomeSummaryTable({ stats, user }: { stats: StatRow[]; us
                   <td className="home-employee-cell" title={row.email}>
                     <span title={needsTitle ? row.name : undefined}>{row.name}</span>
                     {!row.hasColumn && <span style={{ display: 'inline-block', fontSize: 10, color: '#e67e22', marginLeft: 10 }}>(no column found)</span>}
-                    {isOwn && <span className="home-you-badge">You</span>}
+                    {isOwn && user.isAdmin && <span className="home-you-badge">You</span>}
 
                   </td>
                   <td className="home-present">{row.present}</td>

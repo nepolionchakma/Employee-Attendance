@@ -34,7 +34,7 @@ export async function markAttendanceInMemory(
     const isDay =
       typeof maybeDay === 'number' || (typeof maybeDay === 'string' && /^\d+$/.test(String(maybeDay).trim()))
     const isStatus =
-      typeof maybeStatus === 'string' && ['', 'Office', 'Home', 'Absent'].includes(String(maybeStatus).trim())
+      typeof maybeStatus === 'string' && ['', 'On-site', 'Remote', 'Absent'].includes(String(maybeStatus).trim())
     if (isDay && isStatus) {
       status = maybeStatus as string
       day = maybeDay as number

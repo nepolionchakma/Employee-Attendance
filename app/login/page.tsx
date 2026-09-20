@@ -45,7 +45,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
 
   return (
     <div className="page login-page">
-      <h1>Attendance</h1>
+      <h1>Datafluent BD - Attendance</h1>
       <p className="login-subtitle">
         Sign in with your Google account to mark today&apos;s attendance.
       </p>
