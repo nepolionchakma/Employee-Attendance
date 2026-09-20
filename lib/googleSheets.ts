@@ -1,8 +1,63 @@
 
 import fs from 'node:fs'
 
-export const SPREADSHEET_ID: string = process.env.SPREADSHEET_ID || ''
+function envAny(...names: string[]): string {
+  for (const n of names) {
+    const v = (process.env[n] || '').trim()
+    if (v) return v
+  }
+  return ''
+}
+
+/* ---- Multi-spreadsheet routing ----
+ * Members directory always lives in the ADMIN spreadsheet.
+ * Attendance writes are routed by member role:
+ *   Admin    -> ADMIN spreadsheet
+ *   Employee -> EMPLOYEE spreadsheet (falls back to ADMIN when unset)
+ *   Bootcamp -> BOOTCAMP spreadsheet (falls back to ADMIN when unset)
+ * Legacy SPREADSHEET_ID is kept as the ADMIN fallback so old setups keep working.
+ */
+export const ADMIN_SPREADSHEET_ID: string =
+  envAny('ADMIN_SPREADSHEET_ID', 'admin_sheet_id', 'SPREADSHEET_ID')
+export const BOOTCAMP_SPREADSHEET_ID: string =
+  envAny('BOOTCAMP_SPREADSHEET_ID', 'bootcamp_sheet_id')
+export const EMPLOYEE_SPREADSHEET_ID: string =
+  envAny('EMPLOYEE_SPREADSHEET_ID', 'employee_sheet_id')
+/** Legacy single-sheet export — same as the admin spreadsheet. */
+export const SPREADSHEET_ID: string = ADMIN_SPREADSHEET_ID
 export const SHEET_TAB = process.env.ATTENDANCE_SHEET_TAB || ''
+
+export type StoreKind = 'admin' | 'employee' | 'bootcamp'
+
+export function normalizeStore(v: unknown): StoreKind {
+  const s = String(v || '').trim().toLowerCase()
+  if (s === 'bootcamp') return 'bootcamp'
+  if (s === 'employee') return 'employee'
+  return 'admin'
+}
+
+/** Resolved spreadsheet ID for a store (falls back to the admin sheet). */
+export function spreadsheetIdForStore(store?: unknown): string {
+  const s = normalizeStore(store)
+  if (s === 'bootcamp' && BOOTCAMP_SPREADSHEET_ID) return BOOTCAMP_SPREADSHEET_ID
+  if (s === 'employee' && EMPLOYEE_SPREADSHEET_ID) return EMPLOYEE_SPREADSHEET_ID
+  return ADMIN_SPREADSHEET_ID
+}
+
+/** Which stores have an explicit spreadsheet ID configured. */
+export function listConfiguredStores(): { store: StoreKind; spreadsheetId: string; configured: boolean; label: string }[] {
+  return [
+    { store: 'admin', spreadsheetId: spreadsheetIdForStore('admin'), configured: Boolean(ADMIN_SPREADSHEET_ID), label: 'Admin' },
+    { store: 'employee', spreadsheetId: spreadsheetIdForStore('employee'), configured: Boolean(EMPLOYEE_SPREADSHEET_ID), label: 'Employee' },
+    { store: 'bootcamp', spreadsheetId: spreadsheetIdForStore('bootcamp'), configured: Boolean(BOOTCAMP_SPREADSHEET_ID), label: 'Bootcamp' },
+  ]
+}
+
+/** Env toggle so admins can be blocked from submitting attendance (testing). */
+export function adminCanSubmitAttendance(): boolean {
+  const v = (process.env.ADMIN_CAN_SUBMIT_ATTENDANCE || 'yes').trim().toLowerCase()
+  return !['no', 'false', '0', 'off', 'disable', 'disabled', 'n'].includes(v)
+}
 
 const CREDENTIALS_ENV = (process.env.GOOGLE_SERVICE_ACCOUNT_JSON || '').trim()
 const CREDENTIALS_JSON = CREDENTIALS_ENV.startsWith('{') ? CREDENTIALS_ENV : ''
@@ -44,10 +99,11 @@ async function loadCredentials() {
   return JSON.parse(fs.readFileSync(CREDENTIALS_PATH, 'utf8'))
 }
 
-async function sheetsClient() {
+async function sheetsClient(spreadsheetId?: string) {
   const { google } = await import('googleapis')
-  if (!SPREADSHEET_ID) {
-    throw new Error('SPREADSHEET_ID is not set. Add it to .env (see .env.example).')
+  const sid = (spreadsheetId || '').trim() || ADMIN_SPREADSHEET_ID
+  if (!sid) {
+    throw new Error('No spreadsheet ID is set. Add ADMIN_SPREADSHEET_ID (or SPREADSHEET_ID) to .env (see .env.example).')
   }
   const credentials = await loadCredentials()
   const auth = new google.auth.GoogleAuth({
@@ -58,17 +114,17 @@ async function sheetsClient() {
   return google.sheets({ version: 'v4', auth: client } as any)
 }
 
-async function listTabs(sheets: any) {
+async function listTabs(sheets: any, spreadsheetId?: string) {
   const res = await sheets.spreadsheets.get({
-    spreadsheetId: SPREADSHEET_ID,
+    spreadsheetId: (spreadsheetId || '').trim() || ADMIN_SPREADSHEET_ID,
     fields: 'sheets.properties.title',
   })
   return res.data.sheets.map((s: any) => s.properties.title)
 }
 
-async function sheetIdFor(sheets: any, tab: string) {
+async function sheetIdFor(sheets: any, tab: string, spreadsheetId?: string) {
   const res = await sheets.spreadsheets.get({
-    spreadsheetId: SPREADSHEET_ID,
+    spreadsheetId: (spreadsheetId || '').trim() || ADMIN_SPREADSHEET_ID,
     fields: 'sheets.properties.title,sheets.properties.sheetId',
   })
   return res.data.sheets.find((s: any) => s.properties.title === tab)?.properties.sheetId
@@ -82,9 +138,33 @@ let employeesCache: any[] | null = null
 let employeesCacheAt = 0
 const EMPLOYEES_CACHE_TTL = 60 * 1000
 
-function normalizeRole(v: string) {
+export type MemberRole = 'Admin' | 'Employee' | 'Bootcamp'
+
+export function normalizeRole(v: string): MemberRole {
   const r = String(v || '').trim().toLowerCase()
-  return r === 'admin' ? 'Admin' : 'Employee'
+  if (r === 'admin') return 'Admin'
+  if (r === 'bootcamp') return 'Bootcamp'
+  return 'Employee'
+}
+
+/** Role for an email from the Members directory (admin sheet). Returns null when unknown. */
+export async function getRoleForEmail(email: string): Promise<MemberRole | null> {
+  const target = String(email || '').trim().toLowerCase()
+  if (!target) return null
+  try {
+    const list = await getEmployees()
+    const found = list.find((m: { email: string }) => String(m.email || '').trim().toLowerCase() === target)
+    if (found) return normalizeRole((found as { role?: string }).role || '')
+  } catch {}
+  return null
+}
+
+/** Attendance store for an email, resolved via its Members role. */
+export async function storeForEmail(email: string): Promise<StoreKind> {
+  const role = await getRoleForEmail(email)
+  if (role === 'Bootcamp') return 'bootcamp'
+  if (role === 'Admin') return 'admin'
+  return 'employee'
 }
 
 async function resolveEmployeesSheetName(sheets: any) {
@@ -92,14 +172,15 @@ async function resolveEmployeesSheetName(sheets: any) {
 }
 
 export async function ensureEmployeesSheet() {
-  if (!hasGoogleCredentials() || !SPREADSHEET_ID) return EMPLOYEES_SHEET
+  const sid = ADMIN_SPREADSHEET_ID
+  if (!hasGoogleCredentials() || !sid) return EMPLOYEES_SHEET
   const sheets = await sheetsClient()
   const tabs = await listTabs(sheets)
   const desired = EMPLOYEES_SHEET
   if (tabs.includes(desired)) {
     try {
       const res = await sheets.spreadsheets.values.get({
-        spreadsheetId: SPREADSHEET_ID,
+        spreadsheetId: sid,
         range: `${desired}!A1:D`,
         valueRenderOption: 'FORMATTED_VALUE',
       })
@@ -116,14 +197,14 @@ export async function ensureEmployeesSheet() {
         if (seed.length) {
           if (rows.length === 0 || String(rows[0][0] || '').trim() !== 'Full Name') {
             await sheets.spreadsheets.values.update({
-              spreadsheetId: SPREADSHEET_ID,
+              spreadsheetId: sid,
               range: `${desired}!A1`,
               valueInputOption: 'USER_ENTERED',
               requestBody: { values: [['Full Name', 'Gmail', 'Phone', 'Role']] },
             })
           }
           await sheets.spreadsheets.values.update({
-            spreadsheetId: SPREADSHEET_ID,
+            spreadsheetId: sid,
             range: `${desired}!A2`,
             valueInputOption: 'USER_ENTERED',
             requestBody: { values: seed },
@@ -135,11 +216,11 @@ export async function ensureEmployeesSheet() {
     return desired
   }
   await sheets.spreadsheets.batchUpdate({
-    spreadsheetId: SPREADSHEET_ID,
+    spreadsheetId: sid,
     requestBody: { requests: [{ addSheet: { properties: { title: desired } } }] },
   })
   await sheets.spreadsheets.values.update({
-    spreadsheetId: SPREADSHEET_ID,
+    spreadsheetId: sid,
     range: `${desired}!A1`,
     valueInputOption: 'USER_ENTERED',
     requestBody: { values: [['Full Name', 'Gmail', 'Phone', 'Role']] },
@@ -155,7 +236,7 @@ export async function ensureEmployeesSheet() {
     })
     if (rows.length) {
       await sheets.spreadsheets.values.update({
-        spreadsheetId: SPREADSHEET_ID,
+        spreadsheetId: sid,
         range: `${desired}!A2`,
         valueInputOption: 'USER_ENTERED',
         requestBody: { values: rows },
@@ -167,7 +248,8 @@ export async function ensureEmployeesSheet() {
 }
 
 export async function getEmployees({ forceRefresh = false } = {}) {
-  if (!hasGoogleCredentials() || !SPREADSHEET_ID) {
+  const sid = ADMIN_SPREADSHEET_ID
+  if (!hasGoogleCredentials() || !sid) {
     const { ALLOWED_EMAILS, ADMIN_EMAILS } = await import('./employees')
     const adminSet = new Set((ADMIN_EMAILS || []).map((e) => String(e).trim().toLowerCase()))
     return (ALLOWED_EMAILS || []).map((email) => ({
@@ -186,7 +268,7 @@ export async function getEmployees({ forceRefresh = false } = {}) {
     const sheets = await sheetsClient()
     const tab = await resolveEmployeesSheetName(sheets)
     const res = await sheets.spreadsheets.values.get({
-      spreadsheetId: SPREADSHEET_ID,
+      spreadsheetId: sid,
       range: `${tab}!A1:E`,
       valueRenderOption: 'FORMATTED_VALUE',
     })
@@ -251,8 +333,9 @@ function memberDataRowIndexes(rows: any[]) {
 }
 
 async function readEmployeesGrid(sheets: any, tab: string) {
+  const sid = ADMIN_SPREADSHEET_ID
   const res = await sheets.spreadsheets.values.get({
-    spreadsheetId: SPREADSHEET_ID,
+    spreadsheetId: sid,
     range: `${tab}!A1:E`,
     valueRenderOption: 'FORMATTED_VALUE',
   })
@@ -260,6 +343,7 @@ async function readEmployeesGrid(sheets: any, tab: string) {
 }
 
 export async function addEmployee({ name, email, phone = '', role = 'Employee', address = '' }: { name?: string; email: string; phone?: string; role?: string; address?: string }) {
+  const sid = ADMIN_SPREADSHEET_ID
   if (!email || !email.includes('@')) throw new Error('Valid Gmail is required')
   const sheets = await sheetsClient()
   const tab = await ensureEmployeesSheet()
@@ -278,7 +362,7 @@ export async function addEmployee({ name, email, phone = '', role = 'Employee', 
   }
   const values = [[String(name || '').trim() || email.split('@')[0], String(email).trim(), String(phone).trim(), normalizeRole(role), String(address).trim()]]
   await sheets.spreadsheets.values.update({
-    spreadsheetId: SPREADSHEET_ID,
+    spreadsheetId: sid,
     range: `${tab}!A${writeRow}:E${writeRow}`,
     // RAW, not USER_ENTERED: USER_ENTERED parses phone numbers like '01712345678'
     // as numbers and strips the leading zero.
@@ -290,6 +374,7 @@ export async function addEmployee({ name, email, phone = '', role = 'Employee', 
 }
 
 export async function updateEmployee(rowIndex: number, { name, email, phone, role, address }: { name: string; email: string; phone: string; role: string; address?: string }) {
+  const sid = ADMIN_SPREADSHEET_ID
   const sheets = await sheetsClient()
   const tab = await ensureEmployeesSheet()
   // The UI index counts only non-empty data rows — resolve the physical sheet
@@ -301,7 +386,7 @@ export async function updateEmployee(rowIndex: number, { name, email, phone, rol
   const sheetRow = target + 1
   const values = [[String(name || '').trim(), String(email || '').trim(), String(phone || '').trim(), normalizeRole(role), String(address || '').trim()]]
   await sheets.spreadsheets.values.update({
-    spreadsheetId: SPREADSHEET_ID,
+    spreadsheetId: sid,
     range: `${tab}!A${sheetRow}:E${sheetRow}`,
     // RAW for the same reason as addEmployee: preserve leading zeros in phones.
     valueInputOption: 'RAW',
@@ -312,9 +397,10 @@ export async function updateEmployee(rowIndex: number, { name, email, phone, rol
 }
 
 export async function deleteEmployee(rowIndex: number) {
+  const sid = ADMIN_SPREADSHEET_ID
   const sheets = await sheetsClient()
   const tab = await ensureEmployeesSheet()
-  const sheetId = await sheetIdFor(sheets, tab)
+  const sheetId = await sheetIdFor(sheets, tab, sid)
   if (sheetId == null) throw new Error('Employees sheet not found')
   // Same as updateEmployee: resolve the physical row from the non-empty data
   // rows so blank gap rows don't shift the delete onto the wrong member.
@@ -324,7 +410,7 @@ export async function deleteEmployee(rowIndex: number) {
   if (target === undefined) throw new Error(`Member row ${rowIndex} not found in the ${tab} sheet`)
   const sheetRow = target + 1
   await sheets.spreadsheets.batchUpdate({
-    spreadsheetId: SPREADSHEET_ID,
+    spreadsheetId: sid,
     requestBody: {
       requests: [{ deleteDimension: { range: { sheetId, dimension: 'ROWS', startIndex: sheetRow - 1, endIndex: sheetRow } } }],
     },
@@ -413,9 +499,10 @@ function isLegacyThreeCol(rows: any[], headerRow: number) {
  * Location column) into the new format (Presence = pure status, Time column).
  * No-op if the tab already uses the new format.
  */
-async function migrateMergedToPresenceTime(sheets: any, tab: string) {
+async function migrateMergedToPresenceTime(sheets: any, tab: string, store?: unknown) {
+  const sid = spreadsheetIdForStore(store ?? 'admin')
   const res = await sheets.spreadsheets.values.get({
-    spreadsheetId: SPREADSHEET_ID,
+    spreadsheetId: sid,
     range: tab,
     valueRenderOption: 'FORMATTED_VALUE',
   })
@@ -447,7 +534,7 @@ async function migrateMergedToPresenceTime(sheets: any, tab: string) {
   }
 
   await sheets.spreadsheets.values.update({
-    spreadsheetId: SPREADSHEET_ID,
+    spreadsheetId: sid,
     range: `${tab}!A1`,
     valueInputOption: 'USER_ENTERED',
     requestBody: { values: rows },
@@ -458,9 +545,11 @@ async function migrateMergedToPresenceTime(sheets: any, tab: string) {
 
 /* ---- createTab with Timestamp row + Date/Day/Presence/Time headers ---- */
 
-async function createTab(sheets: any, title: string, year: number, month: number) {
+async function createTab(sheets: any, title: string, year: number, month: number, store?: unknown) {
+  const normalizedStore = normalizeStore(store ?? 'admin')
+  const sid = spreadsheetIdForStore(normalizedStore)
   await sheets.spreadsheets.batchUpdate({
-    spreadsheetId: SPREADSHEET_ID,
+    spreadsheetId: sid,
     requestBody: {
       requests: [{ addSheet: { properties: { title, gridProperties: { columnCount: 50 } } } }],
     },
@@ -480,7 +569,7 @@ async function createTab(sheets: any, title: string, year: number, month: number
   ]
 
   await sheets.spreadsheets.values.update({
-    spreadsheetId: SPREADSHEET_ID,
+    spreadsheetId: sid,
     range: `${title}!A1`,
     valueInputOption: 'USER_ENTERED',
     requestBody: { values },
@@ -491,26 +580,32 @@ async function createTab(sheets: any, title: string, year: number, month: number
     { row: 1, col: 0 },
     { row: 1, col: 1 },
     { row: totalRow - 1, col: 0 },
-  ])
+  ], normalizedStore)
 
-  await applyEmployeeFormatting(sheets, title)
+  await applyEmployeeFormatting(sheets, title, normalizedStore)
 
-  // Pre-populate one Presence/Time column block for EVERY member so a new
-  // month tab is immediately usable by the whole team (no first-login wait),
-  // then auto-fill past days (Absent with AUTO_ABSENT_TIME, Fridays Holiday)
-  // and write the Absent Days COUNTIF summary for everyone.
+  // Pre-populate one Presence/Time column block for every member OF THIS STORE
+  // so a new month tab is immediately usable by the whole group (no first-login
+  // wait), then auto-fill past days (Absent with AUTO_ABSENT_TIME, Fridays
+  // Holiday) and write the Absent Days COUNTIF summary for everyone.
   try {
     const members = await getEmployees({ forceRefresh: true })
-    const added = await addAllEmployeeColumns(sheets, title, members)
-    if (added > 0 || members.length) {
+    const storeMembers = members.filter((m: { role?: string }) => {
+      const r = normalizeRole(m?.role || '')
+      if (normalizedStore === 'bootcamp') return r === 'Bootcamp'
+      if (normalizedStore === 'employee') return r === 'Employee'
+      return r === 'Admin'
+    })
+    const added = await addAllEmployeeColumns(sheets, title, storeMembers, normalizedStore)
+    if (added > 0 || storeMembers.length) {
       const filled = await sheets.spreadsheets.values.get({
-        spreadsheetId: SPREADSHEET_ID,
+        spreadsheetId: sid,
         range: title,
         valueRenderOption: 'FORMATTED_VALUE',
       })
       const rows = filled.data.values || []
-      await markAbsentForPastDays(sheets, title, rows)
-      await updateAbsentSummary(sheets, title, rows)
+      await markAbsentForPastDays(sheets, title, rows, normalizedStore)
+      await updateAbsentSummary(sheets, title, rows, normalizedStore)
     }
   } catch (e) {
     console.warn(`Member pre-population skipped for "${title}":`, (e as Error).message)
@@ -526,9 +621,11 @@ async function createTab(sheets: any, title: string, year: number, month: number
  * unlike per-member ensureEmployeeColumn calls which hit the Sheets read quota.
  * Returns how many columns were added.
  */
-async function addAllEmployeeColumns(sheets: any, tab: string, members: { name?: string; email?: string }[]) {
+async function addAllEmployeeColumns(sheets: any, tab: string, members: { name?: string; email?: string }[], store?: unknown) {
+  const normalizedStore = normalizeStore(store ?? 'admin')
+  const sid = spreadsheetIdForStore(normalizedStore)
   const res = await sheets.spreadsheets.values.get({
-    spreadsheetId: SPREADSHEET_ID,
+    spreadsheetId: sid,
     range: tab,
     valueRenderOption: 'FORMATTED_VALUE',
   })
@@ -544,12 +641,12 @@ async function addAllEmployeeColumns(sheets: any, tab: string, members: { name?:
 
   let startCol = Math.max(rows[namesRow].length, rows[headerRow].length, 2)
   const neededCols = startCol + missing.length * COLS_PER_EMPLOYEE + 2
-  const sheetMeta = await sheets.spreadsheets.get({ spreadsheetId: SPREADSHEET_ID })
+  const sheetMeta = await sheets.spreadsheets.get({ spreadsheetId: sid })
   const sheetProps = sheetMeta.data.sheets?.find((s: any) => s.properties?.title === tab)
   const currentCols = sheetProps?.properties?.gridProperties?.columnCount || 26
   if (neededCols > currentCols) {
     await sheets.spreadsheets.batchUpdate({
-      spreadsheetId: SPREADSHEET_ID,
+      spreadsheetId: sid,
       requestBody: {
         requests: [{ updateSheetProperties: { properties: { sheetId: sheetProps?.properties?.sheetId, gridProperties: { columnCount: neededCols } }, fields: 'gridProperties.columnCount' } }],
       },
@@ -565,21 +662,23 @@ async function addAllEmployeeColumns(sheets: any, tab: string, members: { name?:
     startCol += COLS_PER_EMPLOYEE
   }
   await sheets.spreadsheets.values.batchUpdate({
-    spreadsheetId: SPREADSHEET_ID,
+    spreadsheetId: sid,
     requestBody: { valueInputOption: 'USER_ENTERED', data },
   })
 
-  await applyEmployeeFormatting(sheets, tab)
+  await applyEmployeeFormatting(sheets, tab, normalizedStore)
   console.log(`Added ${missing.length} employee column block(s) to "${tab}" in one batch`)
   return missing.length
 }
 
-async function ensureMonthTab(sheets: any) {
-  const tabs = await listTabs(sheets)
+async function ensureMonthTab(sheets: any, store?: unknown) {
+  const normalizedStore = normalizeStore(store ?? 'admin')
+  const sid = spreadsheetIdForStore(normalizedStore)
+  const tabs = await listTabs(sheets, sid)
   const { year, month } = nowParts()
   const title = SHEET_TAB || monthLabel(year, month)
   if (tabs.includes(title)) return title
-  return createTab(sheets, title, year, month)
+  return createTab(sheets, title, year, month, normalizedStore)
 }
 
 function findHeaderRow(rows: any[]) {
@@ -695,13 +794,15 @@ function findEmployeeColumn(rows: any[], headerRow: number, employeeName: string
  * Ensures employee column exists. For attendance structure, adds 2 columns at once
  * (Presence/Time) with sub-header row.
  */
-async function ensureEmployeeColumn(sheets: any, tab: string, employeeName: string, employeeEmail?: string) {
+async function ensureEmployeeColumn(sheets: any, tab: string, employeeName: string, employeeEmail?: string, store?: unknown) {
+  const normalizedStore = normalizeStore(store ?? 'admin')
+  const sid = spreadsheetIdForStore(normalizedStore)
   const email = String(employeeEmail || '').trim().toLowerCase()
   const name = String(employeeName || '').trim()
   if (!email && !name) throw new Error('employeeName or employeeEmail required')
 
   let res = await sheets.spreadsheets.values.get({
-    spreadsheetId: SPREADSHEET_ID,
+    spreadsheetId: sid,
     range: tab,
     valueRenderOption: 'FORMATTED_VALUE',
   })
@@ -720,7 +821,7 @@ async function ensureEmployeeColumn(sheets: any, tab: string, employeeName: stri
         const newHeader = formatEmployeeHeader(rows[namesRow][legacyIdx] || name, email)
         const range = `${tab}!${columnLetter(legacyIdx)}${namesRow + 1}`
         await sheets.spreadsheets.values.update({
-          spreadsheetId: SPREADSHEET_ID,
+          spreadsheetId: sid,
           range,
           valueInputOption: 'USER_ENTERED',
           requestBody: { values: [[newHeader]] },
@@ -744,12 +845,12 @@ async function ensureEmployeeColumn(sheets: any, tab: string, employeeName: stri
     const startCol = Math.max(rows[namesRow].length, rows[headerRow].length, 2)
     // Expand sheet columns if needed (default is 26 = A-Z)
     const neededCols = startCol + COLS_PER_EMPLOYEE + 2
-    const sheetMeta = await sheets.spreadsheets.get({ spreadsheetId: SPREADSHEET_ID })
+    const sheetMeta = await sheets.spreadsheets.get({ spreadsheetId: sid })
     const sheetProps = sheetMeta.data.sheets?.find((s: any) => s.properties?.title === tab)
     const currentCols = sheetProps?.properties?.gridProperties?.columnCount || 26
     if (neededCols > currentCols) {
       await sheets.spreadsheets.batchUpdate({
-        spreadsheetId: SPREADSHEET_ID,
+        spreadsheetId: sid,
         requestBody: {
           requests: [{ updateSheetProperties: { properties: { sheetId: sheetProps?.properties?.sheetId, gridProperties: { columnCount: neededCols } }, fields: 'gridProperties.columnCount' } }],
         },
@@ -757,7 +858,7 @@ async function ensureEmployeeColumn(sheets: any, tab: string, employeeName: stri
       console.log(`Expanded "${tab}" from ${currentCols} to ${neededCols} columns`)
     }
     await sheets.spreadsheets.values.update({
-      spreadsheetId: SPREADSHEET_ID,
+      spreadsheetId: sid,
       range: `${tab}!${columnLetter(startCol)}${namesRow + 1}`,
       valueInputOption: 'USER_ENTERED',
       requestBody: { values: [[newHeader]] },
@@ -765,18 +866,18 @@ async function ensureEmployeeColumn(sheets: any, tab: string, employeeName: stri
     const headerCells = rows[headerRow] || []
     if (String(headerCells[startCol] || '').trim().toLowerCase() !== 'presence') {
       await sheets.spreadsheets.values.update({
-        spreadsheetId: SPREADSHEET_ID,
+        spreadsheetId: sid,
         range: `${tab}!${columnLetter(startCol)}${headerRow + 1}:${columnLetter(startCol + 1)}${headerRow + 1}`,
         valueInputOption: 'USER_ENTERED',
         requestBody: { values: [['Presence', 'Time']] },
       })
     }
-    await applyEmployeeFormatting(sheets, tab)
+    await applyEmployeeFormatting(sheets, tab, normalizedStore)
     console.log(`Added employee 2-col "${newHeader}" to "${tab}" at col ${startCol}`)
   } else {
     const range = `${tab}!${columnLetter(rows[namesRow].length)}${namesRow + 1}`
     await sheets.spreadsheets.values.update({
-      spreadsheetId: SPREADSHEET_ID,
+      spreadsheetId: sid,
       range,
       valueInputOption: 'USER_ENTERED',
       requestBody: { values: [[newHeader]] },
@@ -786,7 +887,8 @@ async function ensureEmployeeColumn(sheets: any, tab: string, employeeName: stri
 }
 
 /** Fills empty cells for past days with "Absent - 12:00 AM" (for 2-col) or "Holiday" for Fridays. */
-async function markAbsentForPastDays(sheets: any, tab: string, rows: any[]) {
+async function markAbsentForPastDays(sheets: any, tab: string, rows: any[], store?: unknown) {
+  const sid = spreadsheetIdForStore(store ?? 'admin')
   const { day: today } = nowParts()
   const headerRow = findHeaderRow(rows)
   const namesRow = findEmployeeNamesRow(rows, headerRow)
@@ -863,7 +965,7 @@ async function markAbsentForPastDays(sheets: any, tab: string, rows: any[]) {
 
   if (dataRows.length > 0) {
     await sheets.spreadsheets.values.update({
-      spreadsheetId: SPREADSHEET_ID,
+      spreadsheetId: sid,
       range: `${tab}!A${headerRow + 2}:${columnLetter(lastEmployeeCol - 1)}${headerRow + 1 + dataRows.length}`,
       valueInputOption: 'USER_ENTERED',
       requestBody: { values: dataRows },
@@ -872,7 +974,8 @@ async function markAbsentForPastDays(sheets: any, tab: string, rows: any[]) {
   console.log(`Marked "Absent" for past days in "${tab}"`)
 }
 
-async function updateAbsentSummary(sheets: any, tab: string, rows: any[]) {
+async function updateAbsentSummary(sheets: any, tab: string, rows: any[], store?: unknown) {
+  const sid = spreadsheetIdForStore(store ?? 'admin')
   const headerRow = findHeaderRow(rows)
   const headers = rows[headerRow]
   const is3col = isAttendanceStructure(rows, headerRow)
@@ -914,7 +1017,7 @@ async function updateAbsentSummary(sheets: any, tab: string, rows: any[]) {
   }
 
   await sheets.spreadsheets.values.update({
-    spreadsheetId: SPREADSHEET_ID,
+    spreadsheetId: sid,
     range: `${tab}!A${titleRow + 1}`,
     valueInputOption: 'USER_ENTERED',
     requestBody: { values: [absentRow] },
@@ -922,11 +1025,12 @@ async function updateAbsentSummary(sheets: any, tab: string, rows: any[]) {
 
   await boldCells(sheets, tab, [
     { row: titleRow, col: 0 },
-  ])
+  ], store)
 }
 
-async function boldCells(sheets: any, tab: string, cells: { row: number; col: number }[]) {
-  const sheetId = await sheetIdFor(sheets, tab)
+async function boldCells(sheets: any, tab: string, cells: { row: number; col: number }[], store?: unknown) {
+  const sid = spreadsheetIdForStore(store ?? 'admin')
+  const sheetId = await sheetIdFor(sheets, tab, sid)
   if (sheetId == null) return
   const requests = cells.map(({ row, col }) => ({
     updateCells: {
@@ -942,7 +1046,7 @@ async function boldCells(sheets: any, tab: string, cells: { row: number; col: nu
     },
   }))
   await sheets.spreadsheets.batchUpdate({
-    spreadsheetId: SPREADSHEET_ID,
+    spreadsheetId: sid,
     requestBody: { requests },
   })
 }
@@ -957,12 +1061,14 @@ const PINK_COLOR = { red: 0.918, green: 0.82, blue: 0.863 }
 const FRIDAY_COLOR = { red: 1.0, green: 0.92, blue: 0.8 }
 const SOLID_MEDIUM = { style: 'SOLID_MEDIUM' }
 
-async function applyEmployeeFormatting(sheets: any, tab: string) {
-  const sheetId = await sheetIdFor(sheets, tab)
+async function applyEmployeeFormatting(sheets: any, tab: string, store?: unknown) {
+  const normalizedStore = normalizeStore(store ?? 'admin')
+  const sid = spreadsheetIdForStore(normalizedStore)
+  const sheetId = await sheetIdFor(sheets, tab, sid)
   if (sheetId == null) return
 
   const res = await sheets.spreadsheets.values.get({
-    spreadsheetId: SPREADSHEET_ID,
+    spreadsheetId: sid,
     range: tab,
     valueRenderOption: 'FORMATTED_VALUE',
   })
@@ -1034,7 +1140,7 @@ async function applyEmployeeFormatting(sheets: any, tab: string) {
       boldRow1.push({ row: 1, col: c })
     }
   }
-  await boldCells(sheets, tab, boldRow1)
+  await boldCells(sheets, tab, boldRow1, normalizedStore)
 
   for (let r = headerRow + 1; r <= lastDayRow; r++) {
     const dayName = String(rows[r][1] || '').trim()
@@ -1071,7 +1177,7 @@ async function applyEmployeeFormatting(sheets: any, tab: string) {
 
   if (requests.length > 0) {
     await sheets.spreadsheets.batchUpdate({
-      spreadsheetId: SPREADSHEET_ID,
+      spreadsheetId: sid,
       requestBody: { requests },
     })
   }
@@ -1080,35 +1186,40 @@ async function applyEmployeeFormatting(sheets: any, tab: string) {
 
 let migratedTabs = new Set<string>()
 
-async function loadGrid(sheets: any, tab: string) {
+async function loadGrid(sheets: any, tab: string, store?: unknown) {
+  const normalizedStore = normalizeStore(store ?? 'admin')
+  const sid = spreadsheetIdForStore(normalizedStore)
   const res = await sheets.spreadsheets.values.get({
-    spreadsheetId: SPREADSHEET_ID,
+    spreadsheetId: sid,
     range: tab,
     valueRenderOption: 'FORMATTED_VALUE',
   })
   const rows = res.data.values || []
   // One-time auto-migration: merged 'Status - Time' + Location → Presence + Time.
-  // Guarded per process+tab so page loads don't re-check every time.
-  if (!migratedTabs.has(tab)) {
-    migratedTabs.add(tab)
+  // Guarded per spreadsheet+tab so page loads don't re-check every time.
+  const migratedKey = `${sid}::${tab}`
+  if (!migratedTabs.has(migratedKey)) {
+    migratedTabs.add(migratedKey)
     if (isMergedPresenceFormat(rows, findHeaderRow(rows))) {
       try {
-        await migrateMergedToPresenceTime(sheets, tab)
-        return await loadGrid(sheets, tab) // re-read the migrated grid
+        await migrateMergedToPresenceTime(sheets, tab, normalizedStore)
+        return await loadGrid(sheets, tab, normalizedStore) // re-read the migrated grid
       } catch (e) {
         console.warn(`Migration skipped for "${tab}":`, (e as Error).message)
       }
     }
   }
-  await markAbsentForPastDays(sheets, tab, rows)
-  await updateAbsentSummary(sheets, tab, rows)
+  await markAbsentForPastDays(sheets, tab, rows, normalizedStore)
+  await updateAbsentSummary(sheets, tab, rows, normalizedStore)
   return rows
 }
 
 /**
  * Returns { attended, status, time? } for an employee on a given day.
+ * Routes to the member's store sheet (Admin / Employee / Bootcamp) via the
+ * Members directory, unless an explicit store is given.
  */
-export async function getAttendance(employeeName: string, employeeEmail?: string, day?: number | string) {
+export async function getAttendance(employeeName: string, employeeEmail?: string, day?: number | string, store?: unknown) {
   if (day === undefined) {
     const maybeDay = employeeEmail
     const isDay = typeof maybeDay === 'number' || (typeof maybeDay === 'string' && /^\d+$/.test(String(maybeDay).trim()))
@@ -1117,10 +1228,14 @@ export async function getAttendance(employeeName: string, employeeEmail?: string
       employeeEmail = undefined
     }
   }
-  const sheets = await sheetsClient()
-  const tab = await ensureMonthTab(sheets)
-  await ensureEmployeeColumn(sheets, tab, employeeName, employeeEmail)
-  const rows = await loadGrid(sheets, tab)
+  const normalizedStore = store === undefined
+    ? await storeForEmail(String(employeeEmail || ''))
+    : normalizeStore(store)
+  const sid = spreadsheetIdForStore(normalizedStore)
+  const sheets = await sheetsClient(sid)
+  const tab = await ensureMonthTab(sheets, normalizedStore)
+  await ensureEmployeeColumn(sheets, tab, employeeName, employeeEmail, normalizedStore)
+  const rows = await loadGrid(sheets, tab, normalizedStore)
   const headerRow = findHeaderRow(rows)
   const isAtt = isAttendanceStructure(rows, headerRow)
   const rowIdx = findDayRow(rows, headerRow, day)
@@ -1145,8 +1260,9 @@ export async function getAttendance(employeeName: string, employeeEmail?: string
 /**
  * Writes attendance for the employee on a day.
  * Presence column = pure status, Time column = the time.
+ * Routes to the member's store sheet unless an explicit store is given.
  */
-export async function markAttendance(employeeName: string, employeeEmail?: string, day?: number | string, status?: string, time?: string) {
+export async function markAttendance(employeeName: string, employeeEmail?: string, day?: number | string, status?: string, time?: string, store?: unknown) {
   if (status === undefined) {
     const maybeDay = employeeEmail
     const maybeStatus = day
@@ -1158,19 +1274,23 @@ export async function markAttendance(employeeName: string, employeeEmail?: strin
       employeeEmail = undefined
     }
   }
-  const sheets = await sheetsClient()
-  const tab = await ensureMonthTab(sheets)
-  await ensureEmployeeColumn(sheets, tab, employeeName, employeeEmail)
+  const normalizedStore = store === undefined
+    ? await storeForEmail(String(employeeEmail || ''))
+    : normalizeStore(store)
+  const sid = spreadsheetIdForStore(normalizedStore)
+  const sheets = await sheetsClient(sid)
+  const tab = await ensureMonthTab(sheets, normalizedStore)
+  await ensureEmployeeColumn(sheets, tab, employeeName, employeeEmail, normalizedStore)
 
-  let rows = await loadGrid(sheets, tab)
+  let rows = await loadGrid(sheets, tab, normalizedStore)
   let headerRow = findHeaderRow(rows)
   // The merged format ('Presence' = 'Status - Time' + a Location column) also
   // satisfies isAttendanceStructure, so migrate whenever its Location header
   // is detected — not just when the Presence header is missing.
   if (isMergedPresenceFormat(rows, headerRow)) {
-    const migrated = await migrateMergedToPresenceTime(sheets, tab)
+    const migrated = await migrateMergedToPresenceTime(sheets, tab, normalizedStore)
     if (migrated) {
-      rows = await sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: tab, valueRenderOption: 'FORMATTED_VALUE' }).then(r => r.data.values || [])
+      rows = await sheets.spreadsheets.values.get({ spreadsheetId: sid, range: tab, valueRenderOption: 'FORMATTED_VALUE' }).then(r => r.data.values || [])
       headerRow = findHeaderRow(rows)
     }
   }
@@ -1184,7 +1304,7 @@ export async function markAttendance(employeeName: string, employeeEmail?: strin
   if (isNew) {
     const range = `${tab}!${columnLetter(colIdx)}${rowIdx + 1}:${columnLetter(colIdx + 1)}${rowIdx + 1}`
     const written = await sheets.spreadsheets.values.update({
-      spreadsheetId: SPREADSHEET_ID,
+      spreadsheetId: sid,
       range,
       valueInputOption: 'USER_ENTERED',
       requestBody: { values: [[status, t]] },
@@ -1194,7 +1314,7 @@ export async function markAttendance(employeeName: string, employeeEmail?: strin
 
   const range = `${tab}!${columnLetter(colIdx)}${rowIdx + 1}`
   const written = await sheets.spreadsheets.values.update({
-    spreadsheetId: SPREADSHEET_ID,
+    spreadsheetId: sid,
     range,
     valueInputOption: 'USER_ENTERED',
     requestBody: { values: [[status]] },
@@ -1204,35 +1324,40 @@ export async function markAttendance(employeeName: string, employeeEmail?: strin
 
 export { parseHeaderEmail, parseHeaderName, formatEmployeeHeader }
 
-export async function listMonthTabs() {
-  const sheets = await sheetsClient()
-  return listTabs(sheets)
+export async function listMonthTabs(store?: unknown) {
+  const normalizedStore = normalizeStore(store ?? 'admin')
+  const sheets = await sheetsClient(spreadsheetIdForStore(normalizedStore))
+  return listTabs(sheets, spreadsheetIdForStore(normalizedStore))
 }
 
-export async function getRawSheet(tab: string) {
-  const sheets = await sheetsClient()
+export async function getRawSheet(tab: string, store?: unknown) {
+  const normalizedStore = normalizeStore(store ?? 'admin')
+  const sid = spreadsheetIdForStore(normalizedStore)
+  const sheets = await sheetsClient(sid)
   let title = (tab || '').trim()
-  if (!title) title = await ensureMonthTab(sheets)
+  if (!title) title = await ensureMonthTab(sheets, normalizedStore)
   else {
-    const tabs = await listTabs(sheets)
+    const tabs = await listTabs(sheets, sid)
     if (!tabs.includes(title)) throw new Error(`Sheet tab "${title}" not found`)
   }
   const res = await sheets.spreadsheets.values.get({
-    spreadsheetId: SPREADSHEET_ID,
+    spreadsheetId: sid,
     range: title,
     valueRenderOption: 'FORMATTED_VALUE',
   })
   return { tab: title, values: res.data.values || [] }
 }
 
-export async function updateRawCell(tab: string, row: number, col: number, value: string) {
-  const sheets = await sheetsClient()
-  const title = (tab || '').trim() || (await ensureMonthTab(sheets))
-  const tabs = await listTabs(sheets)
+export async function updateRawCell(tab: string, row: number, col: number, value: string, store?: unknown) {
+  const normalizedStore = normalizeStore(store ?? 'admin')
+  const sid = spreadsheetIdForStore(normalizedStore)
+  const sheets = await sheetsClient(sid)
+  const title = (tab || '').trim() || (await ensureMonthTab(sheets, normalizedStore))
+  const tabs = await listTabs(sheets, sid)
   if (!tabs.includes(title)) throw new Error(`Sheet tab "${title}" not found`)
   const range = `${title}!${columnLetter(col)}${row + 1}`
   await sheets.spreadsheets.values.update({
-    spreadsheetId: SPREADSHEET_ID,
+    spreadsheetId: sid,
     range,
     valueInputOption: 'USER_ENTERED',
     requestBody: { values: [[String(value ?? '')]] },
@@ -1240,32 +1365,36 @@ export async function updateRawCell(tab: string, row: number, col: number, value
   return true
 }
 
-export async function batchUpdateRawCells(tab: string, cells: { row: number; col: number; value: string }[]) {
+export async function batchUpdateRawCells(tab: string, cells: { row: number; col: number; value: string }[], store?: unknown) {
   if (!cells?.length) return true
-  const sheets = await sheetsClient()
-  const title = (tab || '').trim() || (await ensureMonthTab(sheets))
-  const tabs = await listTabs(sheets)
+  const normalizedStore = normalizeStore(store ?? 'admin')
+  const sid = spreadsheetIdForStore(normalizedStore)
+  const sheets = await sheetsClient(sid)
+  const title = (tab || '').trim() || (await ensureMonthTab(sheets, normalizedStore))
+  const tabs = await listTabs(sheets, sid)
   if (!tabs.includes(title)) throw new Error(`Sheet tab "${title}" not found`)
   const data = cells.map(({ row, col, value }) => ({
     range: `${title}!${columnLetter(col)}${row + 1}`,
     values: [[String(value ?? '')]],
   }))
   await sheets.spreadsheets.values.batchUpdate({
-    spreadsheetId: SPREADSHEET_ID,
+    spreadsheetId: sid,
     requestBody: { valueInputOption: 'USER_ENTERED', data },
   })
   return true
 }
 
-export async function batchUpdateAttendanceCells(tab: string, updates: { employeeName?: string; employeeEmail?: string; name?: string; email?: string; day: string; status: string; time?: string }[]) {
+export async function batchUpdateAttendanceCells(tab: string, updates: { employeeName?: string; employeeEmail?: string; name?: string; email?: string; day: string; status: string; time?: string }[], store?: unknown) {
   if (!updates?.length) return true
-  const sheets = await sheetsClient()
-  const title = (tab || '').trim() || (await ensureMonthTab(sheets))
-  const tabs = await listTabs(sheets)
+  const normalizedStore = normalizeStore(store ?? 'admin')
+  const sid = spreadsheetIdForStore(normalizedStore)
+  const sheets = await sheetsClient(sid)
+  const title = (tab || '').trim() || (await ensureMonthTab(sheets, normalizedStore))
+  const tabs = await listTabs(sheets, sid)
   if (!tabs.includes(title)) throw new Error(`Sheet tab "${title}" not found`)
 
   const res = await sheets.spreadsheets.values.get({
-    spreadsheetId: SPREADSHEET_ID,
+    spreadsheetId: sid,
     range: title,
     valueRenderOption: 'FORMATTED_VALUE',
   })
@@ -1311,17 +1440,17 @@ export async function batchUpdateAttendanceCells(tab: string, updates: { employe
   }
 
   await sheets.spreadsheets.values.batchUpdate({
-    spreadsheetId: SPREADSHEET_ID,
+    spreadsheetId: sid,
     requestBody: { valueInputOption: 'USER_ENTERED', data },
   })
 
   const rows2Res = await sheets.spreadsheets.values.get({
-    spreadsheetId: SPREADSHEET_ID,
+    spreadsheetId: sid,
     range: title,
     valueRenderOption: 'FORMATTED_VALUE',
   })
   const rows2 = rows2Res.data.values || []
-  await updateAbsentSummary(sheets, title, rows2)
+  await updateAbsentSummary(sheets, title, rows2, normalizedStore)
   return true
 }
 
@@ -1329,15 +1458,17 @@ export async function batchUpdateAttendanceCells(tab: string, updates: { employe
  * Returns the full grid for a tab (for admin).
  * For 2-col: reads Presence + Time per employee.
  */
-export async function getAdminGrid(tab: string) {
-  const sheets = await sheetsClient()
+export async function getAdminGrid(tab: string, store?: unknown) {
+  const normalizedStore = normalizeStore(store ?? 'admin')
+  const sid = spreadsheetIdForStore(normalizedStore)
+  const sheets = await sheetsClient(sid)
   let title = (tab || '').trim()
-  if (!title) title = await ensureMonthTab(sheets)
+  if (!title) title = await ensureMonthTab(sheets, normalizedStore)
   else {
-    const tabs = await listTabs(sheets)
+    const tabs = await listTabs(sheets, sid)
     if (!tabs.includes(title)) throw new Error(`Sheet tab "${title}" not found`)
   }
-  const rows = await loadGrid(sheets, title)
+  const rows = await loadGrid(sheets, title, normalizedStore)
   const headerRow = findHeaderRow(rows)
   const namesRow = findEmployeeNamesRow(rows, headerRow)
   const headers = rows[headerRow]
@@ -1394,14 +1525,16 @@ export async function getAdminGrid(tab: string) {
   return { tab: title, headers, employees, days, absentDays }
 }
 
-export async function adminUpdateCell(tab: string, employeeName: string, dayLabel: string, status: string, employeeEmail?: string) {
-  const sheets = await sheetsClient()
-  const title = (tab || '').trim() || (await ensureMonthTab(sheets))
-  const tabs = await listTabs(sheets)
+export async function adminUpdateCell(tab: string, employeeName: string, dayLabel: string, status: string, employeeEmail?: string, store?: unknown) {
+  const normalizedStore = normalizeStore(store ?? 'admin')
+  const sid = spreadsheetIdForStore(normalizedStore)
+  const sheets = await sheetsClient(sid)
+  const title = (tab || '').trim() || (await ensureMonthTab(sheets, normalizedStore))
+  const tabs = await listTabs(sheets, sid)
   if (!tabs.includes(title)) throw new Error(`Sheet tab "${title}" not found`)
 
   const res = await sheets.spreadsheets.values.get({
-    spreadsheetId: SPREADSHEET_ID,
+    spreadsheetId: sid,
     range: title,
     valueRenderOption: 'FORMATTED_VALUE',
   })
@@ -1421,7 +1554,7 @@ export async function adminUpdateCell(tab: string, employeeName: string, dayLabe
     const t = new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: TZ }).format(new Date())
     const range = `${title}!${columnLetter(colIdx)}${rowIdx + 1}:${columnLetter(colIdx + 1)}${rowIdx + 1}`
     await sheets.spreadsheets.values.update({
-      spreadsheetId: SPREADSHEET_ID,
+      spreadsheetId: sid,
       range,
       valueInputOption: 'USER_ENTERED',
       requestBody: { values: [[normalized, t]] },
@@ -1429,7 +1562,7 @@ export async function adminUpdateCell(tab: string, employeeName: string, dayLabe
   } else {
     const range = `${title}!${columnLetter(colIdx)}${rowIdx + 1}`
     await sheets.spreadsheets.values.update({
-      spreadsheetId: SPREADSHEET_ID,
+      spreadsheetId: sid,
       range,
       valueInputOption: 'USER_ENTERED',
       requestBody: { values: [[normalized]] },
@@ -1437,28 +1570,41 @@ export async function adminUpdateCell(tab: string, employeeName: string, dayLabe
   }
 
   const rows2Res = await sheets.spreadsheets.values.get({
-    spreadsheetId: SPREADSHEET_ID,
+    spreadsheetId: sid,
     range: title,
     valueRenderOption: 'FORMATTED_VALUE',
   })
   const rows2 = rows2Res.data.values || []
-  await updateAbsentSummary(sheets, title, rows2)
+  await updateAbsentSummary(sheets, title, rows2, normalizedStore)
   return true
 }
 
-export async function backfillCurrentTab() {
-  if (!hasGoogleCredentials() || !SPREADSHEET_ID) return
-  const sheets = await sheetsClient()
-  const tab = await ensureMonthTab(sheets)
-  await loadGrid(sheets, tab)
+export async function backfillCurrentTab(store?: unknown) {
+  if (!hasGoogleCredentials() || !ADMIN_SPREADSHEET_ID) return
+  // Backfill every configured store so auto-absent never drifts.
+  const stores: StoreKind[] = store === undefined
+    ? (['admin', 'employee', 'bootcamp'] as StoreKind[]).filter((s) => Boolean(spreadsheetIdForStore(s)))
+    : [normalizeStore(store)]
+  for (const s of stores) {
+    try {
+      const sid = spreadsheetIdForStore(s)
+      const sheets = await sheetsClient(sid)
+      const tab = await ensureMonthTab(sheets, s)
+      await loadGrid(sheets, tab, s)
+    } catch (e) {
+      console.error(`Auto-absent backfill failed for "${s}":`, (e as Error).message)
+    }
+  }
 }
 
 export async function ensureEmployeeTabForUser(employeeName: string, employeeEmail: string) {
-  if (!hasGoogleCredentials() || !SPREADSHEET_ID) return
-  const sheets = await sheetsClient()
-  const tab = await ensureMonthTab(sheets)
-  await ensureEmployeeColumn(sheets, tab, employeeName, employeeEmail)
-  await loadGrid(sheets, tab)
+  if (!hasGoogleCredentials() || !ADMIN_SPREADSHEET_ID) return
+  const userStore = await storeForEmail(employeeEmail)
+  const sid = spreadsheetIdForStore(userStore)
+  const sheets = await sheetsClient(sid)
+  const tab = await ensureMonthTab(sheets, userStore)
+  await ensureEmployeeColumn(sheets, tab, employeeName, employeeEmail, userStore)
+  await loadGrid(sheets, tab, userStore)
 }
 
 /* ---- Admin maintenance helpers (rebuild / add column / refresh) ---- */
@@ -1484,29 +1630,31 @@ function parseMonthTitle(title: string): { year: number; month: number } | null 
  * past days (Absent with AUTO_ABSENT_TIME, Fridays as Holiday).
  * Used to repair tabs that drifted into a legacy/mixed structure.
  */
-export async function recreateAttendanceTab(tab: string, employees: { name: string; email: string }[]) {
-  if (!hasGoogleCredentials() || !SPREADSHEET_ID) throw new Error('Google Sheets not configured')
-  const sheets = await sheetsClient()
+export async function recreateAttendanceTab(tab: string, employees: { name: string; email: string }[], store?: unknown) {
+  if (!hasGoogleCredentials() || !ADMIN_SPREADSHEET_ID) throw new Error('Google Sheets not configured')
+  const normalizedStore = normalizeStore(store ?? 'admin')
+  const sid = spreadsheetIdForStore(normalizedStore)
+  const sheets = await sheetsClient(sid)
   const title = (tab || '').trim()
   if (!title) throw new Error('Tab name required')
 
-  const tabs = await listTabs(sheets)
+  const tabs = await listTabs(sheets, sid)
   if (tabs.includes(title)) {
-    const sheetId = await sheetIdFor(sheets, title)
+    const sheetId = await sheetIdFor(sheets, title, sid)
     if (sheetId == null) throw new Error(`Sheet tab "${title}" not found`)
     await sheets.spreadsheets.batchUpdate({
-      spreadsheetId: SPREADSHEET_ID,
+      spreadsheetId: sid,
       requestBody: { requests: [{ deleteSheet: { sheetId } }] },
     })
   }
 
   const parsed = parseMonthTitle(title)
   const { year, month } = parsed || nowParts()
-  await createTab(sheets, title, year, month)
+  await createTab(sheets, title, year, month, normalizedStore)
 
-  await addAllEmployeeColumns(sheets, title, employees)
+  await addAllEmployeeColumns(sheets, title, employees, normalizedStore)
 
-  await loadGrid(sheets, title)
+  await loadGrid(sheets, title, normalizedStore)
   console.log(`Recreated tab "${title}" with ${employees.filter((e) => String(e?.email || '').trim()).length} employee columns`)
   return { tab: title, employees: employees.filter((e) => String(e?.email || '').trim()).length }
 }
@@ -1515,18 +1663,20 @@ export async function recreateAttendanceTab(tab: string, employees: { name: stri
  * Adds a 2-column Presence/Time block for an employee on an existing tab
  * (used when a column was missed or the tab was created before the member existed).
  */
-export async function addEmployeeColumnToTab(tab: string, employeeName: string, employeeEmail: string) {
-  if (!hasGoogleCredentials() || !SPREADSHEET_ID) throw new Error('Google Sheets not configured')
-  const sheets = await sheetsClient()
+export async function addEmployeeColumnToTab(tab: string, employeeName: string, employeeEmail: string, store?: unknown) {
+  if (!hasGoogleCredentials() || !ADMIN_SPREADSHEET_ID) throw new Error('Google Sheets not configured')
+  const normalizedStore = normalizeStore(store ?? 'admin')
+  const sid = spreadsheetIdForStore(normalizedStore)
+  const sheets = await sheetsClient(sid)
   const title = (tab || '').trim()
   if (!title) throw new Error('Tab name required')
-  const tabs = await listTabs(sheets)
+  const tabs = await listTabs(sheets, sid)
   if (!tabs.includes(title)) throw new Error(`Sheet tab "${title}" not found`)
   const email = String(employeeEmail || '').trim()
   if (!email) throw new Error('employeeEmail required')
 
-  await ensureEmployeeColumn(sheets, title, String(employeeName || '').trim() || email.split('@')[0], email)
-  await loadGrid(sheets, title)
+  await ensureEmployeeColumn(sheets, title, String(employeeName || '').trim() || email.split('@')[0], email, normalizedStore)
+  await loadGrid(sheets, title, normalizedStore)
   return true
 }
 
@@ -1534,14 +1684,16 @@ export async function addEmployeeColumnToTab(tab: string, employeeName: string, 
  * Re-runs auto-absent fill + Absent Days summary on a tab
  * (the same maintenance that runs on every grid load / hourly job).
  */
-export async function refreshAttendanceTab(tab?: string) {
-  if (!hasGoogleCredentials() || !SPREADSHEET_ID) throw new Error('Google Sheets not configured')
-  const sheets = await sheetsClient()
-  const title = (tab || '').trim() || (await ensureMonthTab(sheets))
-  const tabs = await listTabs(sheets)
+export async function refreshAttendanceTab(tab?: string, store?: unknown) {
+  if (!hasGoogleCredentials() || !ADMIN_SPREADSHEET_ID) throw new Error('Google Sheets not configured')
+  const normalizedStore = normalizeStore(store ?? 'admin')
+  const sid = spreadsheetIdForStore(normalizedStore)
+  const sheets = await sheetsClient(sid)
+  const title = (tab || '').trim() || (await ensureMonthTab(sheets, normalizedStore))
+  const tabs = await listTabs(sheets, sid)
   if (!tabs.includes(title)) throw new Error(`Sheet tab "${title}" not found`)
 
-  const rows = await loadGrid(sheets, title)
+  const rows = await loadGrid(sheets, title, normalizedStore)
   let headerRow: number
   try {
     headerRow = findHeaderRow(rows)

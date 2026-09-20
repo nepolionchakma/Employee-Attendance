@@ -33,9 +33,11 @@ export default async function HomePage() {
 
   let summary: { monthLabel: string; stats: SummaryStat[] } | null = null
   try {
-    const { hasGoogleCredentials, getAdminGrid, getEmployees, parseHeaderEmail, parseHeaderName } = await import('@/lib/googleSheets')
+    const { hasGoogleCredentials, getAdminGrid, getEmployees, parseHeaderEmail, parseHeaderName, storeForEmail } = await import('@/lib/googleSheets')
     if (hasGoogleCredentials()) {
-      const [grid, directory] = await Promise.all([getAdminGrid(''), getEmployees()])
+      // Each role reads its own spreadsheet: Bootcamp -> bootcamp sheet, Employee -> employee sheet.
+      const userStore = await storeForEmail(String(user.email || '')).catch(() => 'employee' as const)
+      const [grid, directory] = await Promise.all([getAdminGrid('', userStore), getEmployees()])
       if (grid?.employees) {
         const days = grid.days || []
         const absentDays: Record<string, number> = grid.absentDays || {}

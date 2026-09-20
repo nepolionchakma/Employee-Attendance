@@ -24,6 +24,14 @@ After login, you will see:
 - A table with each person’s name/email, present days, absent days, and total.
 - Admins can see all employees/students. Regular users see only their own record.
 
+## Spreadsheets (Admin / Employee / Bootcamp)
+
+- The **Members** directory lives in the **Admin** spreadsheet (`Members` tab, Role = `Admin` / `Employee` / `Bootcamp`).
+- Attendance is routed by Role: Admins -> admin sheet, Employees -> employee sheet, Bootcamp -> bootcamp sheet.
+- If the employee/bootcamp sheet ID is not set, that group falls back to the admin sheet (old single-sheet behavior).
+- Share **all three** spreadsheets with the service account email as **Editor**.
+- `ADMIN_CAN_SUBMIT_ATTENDANCE=no` blocks admins from submitting (manage-only). Default `yes` (useful for testing).
+
 ## Admin Tasks
 
 ### 1. Configure the attendance sheet
@@ -37,6 +45,8 @@ The app reads from a Google Sheet. Administrative setup usually includes:
 If the sheet isn’t set up yet, the dashboard will show a message like “Attendance summary not available (sheets not configured).”
 
 ### 2. View overall attendance
+
+Use the **Spreadsheet** switcher on the Manage Attendance page to view Admin / Employee / Bootcamp sheets.
 
 Admins can see the full list of employees/students and their attendance for the month.
 

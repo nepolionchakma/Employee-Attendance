@@ -1,8 +1,9 @@
 # Attendance App (v3)
 
 Employees sign in with their Google account, then mark today's attendance
-(On-site / Remote). Records live in a Google Sheets spreadsheet. Admins manage
-attendance and members from a built-in dashboard.
+(On-site / Remote). Records live in Google Sheets spreadsheets, routed by member
+Role: Admins -> admin sheet, Employees -> employee sheet, Bootcamp -> bootcamp
+sheet. Admins manage all three spreadsheets from the built-in dashboard.
 
 ```
 User → Google sign-in → Attendance form → Google Sheets
@@ -49,7 +50,11 @@ tab of your spreadsheet.
 | Variable | Required | Description |
 |---|---|---|
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Yes | Google OAuth client (login) |
-| `SPREADSHEET_ID` | Yes | From the spreadsheet URL |
+| `SPREADSHEET_ID` | Yes (legacy) | Old single-sheet setup — used as the ADMIN sheet fallback |
+| `ADMIN_SPREADSHEET_ID` | Yes | Members directory + Admin attendance (also accepts `admin_sheet_id`) |
+| `EMPLOYEE_SPREADSHEET_ID` | No | Employee attendance (also accepts `employee_sheet_id`; falls back to admin sheet) |
+| `BOOTCAMP_SPREADSHEET_ID` | No | Bootcamp attendance (also accepts `bootcamp_sheet_id`; falls back to admin sheet) |
+| `ADMIN_CAN_SUBMIT_ATTENDANCE` | No | `yes` (default) lets admins submit; `no` blocks admin submits (manage-only) |
 | `GOOGLE_SERVICE_ACCOUNT_JSON` | Yes | Service account JSON string (or base64 via `_BASE64`, or `service-account.json` in the project root) |
 | `SESSION_SECRET` | Yes | Random string for JWT signing (`openssl rand -base64 32`) |
 | `AUTO_ABSENT_TIME` | No | Time written into auto-absent cells (default `12:00 AM`) |
@@ -72,7 +77,7 @@ tab of your spreadsheet.
 1. Enable **Google Sheets API**
 2. Create an **OAuth client** (Web application) — redirect URI: `http://localhost:3000/api/auth/callback`
 3. Create a **service account**, download the JSON key as `service-account.json`
-4. **Share the spreadsheet with the service account as Editor** — without this, writes fail with "The caller does not have permission"
+4. **Share ALL THREE spreadsheets with the service account as Editor** — without this, writes fail with "The caller does not have permission"
 
 Detailed step-by-step instructions with screenshots-level detail are in
 [`Version 3.md`](./Version%203.md).

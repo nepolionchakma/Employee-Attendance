@@ -10,15 +10,17 @@ export async function POST(request: NextRequest) {
 
   const body = await request.json().catch(() => ({}))
   const tab = String(body?.tab || '').trim()
+  const store = String(body?.store || 'admin').trim()
 
   // Generic raw cell edit (dynamic sheets): { row, col, value }
   const hasRawCoords = body?.row !== undefined && body?.col !== undefined
 
   try {
-    const { hasGoogleCredentials, adminUpdateCell, updateRawCell } = await import('@/lib/googleSheets')
+    const { hasGoogleCredentials, adminUpdateCell, updateRawCell, normalizeStore } = await import('@/lib/googleSheets')
     if (!hasGoogleCredentials()) {
       return NextResponse.json({ message: 'Google Sheets not configured' }, { status: 500 })
     }
+    const resolvedStore = normalizeStore(store)
 
     if (hasRawCoords) {
       const row = Number(body.row)
@@ -27,7 +29,7 @@ export async function POST(request: NextRequest) {
       if (!Number.isInteger(row) || !Number.isInteger(col) || row < 0 || col < 0) {
         return NextResponse.json({ message: 'row and col must be non-negative integers' }, { status: 400 })
       }
-      await updateRawCell(tab, row, col, value)
+      await updateRawCell(tab, row, col, value, resolvedStore)
       return NextResponse.json({ ok: true })
     }
 
@@ -39,7 +41,7 @@ export async function POST(request: NextRequest) {
     if (!employeeName || !day) {
       return NextResponse.json({ message: 'employeeName and day are required' }, { status: 400 })
     }
-    await adminUpdateCell(tab, employeeName, day, status, employeeEmail || undefined)
+    await adminUpdateCell(tab, employeeName, day, status, employeeEmail || undefined, resolvedStore)
     return NextResponse.json({ ok: true })
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error)

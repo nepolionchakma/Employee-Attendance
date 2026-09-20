@@ -9,24 +9,27 @@ export async function GET(request: NextRequest) {
   if (!user.isAdmin) return NextResponse.json({ message: 'Forbidden' }, { status: 403 })
 
   const tab = request.nextUrl.searchParams.get('tab') || ''
+  const store = request.nextUrl.searchParams.get('store') || 'admin'
   try {
-    const { hasGoogleCredentials, getAdminGrid, getRawSheet, listMonthTabs } = await import('@/lib/googleSheets')
+    const { hasGoogleCredentials, getAdminGrid, getRawSheet, listMonthTabs, listConfiguredStores, normalizeStore } = await import('@/lib/googleSheets')
     if (!hasGoogleCredentials()) {
       return NextResponse.json({ message: 'Google Sheets not configured' }, { status: 500 })
     }
-    const tabs = await listMonthTabs()
+    const resolvedStore = normalizeStore(store)
+    const stores = listConfiguredStores()
+    const tabs = await listMonthTabs(resolvedStore)
     // Try attendance-structured grid first; if the sheet isn't attendance-shaped,
     // fall back to raw 2D values (dynamic view for any sheet).
     try {
-      const grid = await getAdminGrid(tab)
-      return NextResponse.json({ tabs, kind: 'attendance', ...grid })
+      const grid = await getAdminGrid(tab, resolvedStore)
+      return NextResponse.json({ tabs, kind: 'attendance', store: resolvedStore, stores, ...grid })
     } catch (e: unknown) {
       const msg = String((e as Error)?.message || '')
       const isStructureError =
         msg.includes('No header row') || msg.includes('not found in the sheet headers') || msg.includes('not found')
       if (!isStructureError) throw e
-      const raw = await getRawSheet(tab)
-      return NextResponse.json({ tabs, kind: 'raw', tab: raw.tab, values: raw.values })
+      const raw = await getRawSheet(tab, resolvedStore)
+      return NextResponse.json({ tabs, kind: 'raw', store: resolvedStore, stores, tab: raw.tab, values: raw.values })
     }
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error)

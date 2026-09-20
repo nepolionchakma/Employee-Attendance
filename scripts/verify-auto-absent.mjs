@@ -17,7 +17,7 @@ const fs = await import('node:fs')
 const creds = JSON.parse(fs.readFileSync('service-account.json', 'utf8'))
 const auth = new google.auth.GoogleAuth({ credentials: creds, scopes: ['https://www.googleapis.com/auth/spreadsheets'] })
 const sheets = google.sheets({ version: 'v4', auth })
-const SID = process.env.SPREADSHEET_ID
+const SID = process.env.ADMIN_SPREADSHEET_ID || process.env.SPREADSHEET_ID
 
 let failed = 0
 const ok = (cond, label) => {
@@ -77,7 +77,9 @@ if (mode === 'setup') {
   const testCol = rows[0].findIndex((h) => cell(h).includes('testuser.verify@gmail.com'))
   const allMemberCols = rows[0].filter((h) => cell(h).includes('@')).length
   const membersRes = await sheets.spreadsheets.values.get({ spreadsheetId: SID, range: 'Members', valueRenderOption: 'FORMATTED_VALUE' })
-  const memberCount = (membersRes.data.values || []).slice(1).filter((r) => cell(r[1]).includes('@')).length
+  const memberRows = (membersRes.data.values || []).slice(1).filter((r) => cell(r[1]).includes('@'))
+  // Scratch tab is created in the admin store, which pre-populates Admin-role members only.
+  const memberCount = memberRows.filter((r) => cell(r[3]).toLowerCase() === 'admin').length || memberRows.length
 
   // 1. Canonical structure: Timestamp row + Presence/Time sub-headers
   ok(cell(rows[0][0]) === 'Timestamp', '1. canonical structure: Timestamp row present')
@@ -118,11 +120,13 @@ if (mode === 'setup') {
 if (mode === 'submit') {
   // Runs with ATTENDANCE_SHEET_TAB=<scratch> so all writes stay on the scratch tab
   const mod = await import('../lib/googleSheets.ts')
-  await mod.markAttendance('Test User', 'testuser.verify@gmail.com', today, 'On-site', '2:45 PM')
-  await mod.markAttendance('Arup Das', 'arupdas@gmail.com', today, 'Remote', '9:05 AM')
-  const got = await mod.getAttendance('Test User', 'testuser.verify@gmail.com', today)
-  const gotPast = await mod.getAttendance('Test User', 'testuser.verify@gmail.com', 1)
-  const gotMember = await mod.getAttendance('Arup Das', 'arupdas@gmail.com', today)
+  // Explicit 'admin' store: the scratch tab is created in the admin spreadsheet,
+  // so reads/writes must stay there regardless of member roles.
+  await mod.markAttendance('Test User', 'testuser.verify@gmail.com', today, 'On-site', '2:45 PM', 'admin')
+  await mod.markAttendance('Arup Das', 'arupdas@gmail.com', today, 'Remote', '9:05 AM', 'admin')
+  const got = await mod.getAttendance('Test User', 'testuser.verify@gmail.com', today, 'admin')
+  const gotPast = await mod.getAttendance('Test User', 'testuser.verify@gmail.com', 1, 'admin')
+  const gotMember = await mod.getAttendance('Arup Das', 'arupdas@gmail.com', today, 'admin')
   console.log(JSON.stringify({ got, gotPast, gotMember }))
   process.exit(0)
 }
