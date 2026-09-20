@@ -3,6 +3,7 @@ import { getSessionUser } from '@/lib/auth'
 import AttendanceForm from './attendance-form'
 import Navbar from './components/Navbar'
 import HomeSummaryTable from './components/HomeSummaryTable'
+import AttendanceHistory from './components/AttendanceHistory'
 
 export const metadata = {
   title: 'Datafluent BD — Online Daily Attendance Management',
@@ -89,7 +90,10 @@ export default async function HomePage() {
         {summary ? (
           <div className="card home-summary-card">
             <div className="home-summary-header">
-              <h3>{user.isAdmin ? 'Attendance' : 'My Attendance'} - {summary.monthLabel}</h3>
+              <div className="home-title-row">
+                <h3>{user.isAdmin ? 'Attendance' : 'My Attendance'} - {summary.monthLabel}</h3>
+                <AttendanceHistory />
+              </div>
               <span className="home-summary-sub">
                 {user.isAdmin ? 'Current month summary for all employees' : 'Your current month summary'}
               </span>
