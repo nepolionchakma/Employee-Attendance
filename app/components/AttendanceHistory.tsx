@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useRouter } from 'next/navigation'
 
 interface HistoryDay {
   status: string
@@ -29,6 +30,28 @@ function HistoryIcon() {
       <path d="M3 12a9 9 0 1 0 2.6-6.4L3 8" />
       <path d="M3 3v5h5" />
       <path d="M12 7v5l4 2" />
+    </svg>
+  )
+}
+
+function RefreshIcon({ spinning }: { spinning: boolean }) {
+  return (
+    <svg
+      className={spinning ? 'spin' : undefined}
+      width="15"
+      height="15"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
+      <path d="M21 3v5h-5" />
+      <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
+      <path d="M3 21v-5h5" />
     </svg>
   )
 }
@@ -65,9 +88,22 @@ export default function AttendanceHistory() {
   const [data, setData] = useState<HistoryPayload | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  // Bumped by the refresh button to re-run the fetch below even when the month
+  // is already cached.
+  const [reloadKey, setReloadKey] = useState(0)
   const cache = useRef(new Map<string, HistoryPayload>())
+  const router = useRouter()
 
   const close = useCallback(() => setOpen(false), [])
+
+  // Re-read the sheet for every month (drops the cache) so the calendar shows
+  // whatever is in the spreadsheet right now, and re-render the server
+  // components behind the modal so the home summary table updates too.
+  const refresh = useCallback(() => {
+    cache.current.clear()
+    setReloadKey((k) => k + 1)
+    router.refresh()
+  }, [router])
 
   useEffect(() => {
     if (!open) return
@@ -107,7 +143,7 @@ export default function AttendanceHistory() {
     return () => {
       cancelled = true
     }
-  }, [open, cursor])
+  }, [open, cursor, reloadKey])
 
   // Close on Escape and keep the page behind the modal from scrolling.
   useEffect(() => {
@@ -170,9 +206,27 @@ export default function AttendanceHistory() {
           >
             <div className="modal-head">
               <h4>Attendance history</h4>
-              <button type="button" className="modal-close" onClick={close} aria-label="Close history">
-                ×
-              </button>
+              <div className="modal-actions">
+                <button
+                  type="button"
+                  className="modal-icon-btn modal-refresh"
+                  onClick={refresh}
+                  disabled={loading}
+                  title="Refresh attendance and home summary"
+                  aria-label="Refresh attendance and home summary"
+                >
+                  <RefreshIcon spinning={loading} />
+                </button>
+                <button
+                  type="button"
+                  className="modal-icon-btn modal-close"
+                  onClick={close}
+                  title="Close"
+                  aria-label="Close history"
+                >
+                  ×
+                </button>
+              </div>
             </div>
 
             <div className="cal-nav">
