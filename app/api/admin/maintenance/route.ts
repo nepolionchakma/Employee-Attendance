@@ -21,7 +21,7 @@ export async function POST(request: NextRequest) {
   const store = String(body?.store || 'admin').trim()
 
   try {
-    const { hasGoogleCredentials, recreateAttendanceTab, addEmployeeColumnToTab, refreshAttendanceTab, getEmployees, normalizeStore, normalizeRole } =
+    const { hasGoogleCredentials, recreateAttendanceTab, addEmployeeColumnToTab, refreshAttendanceTab, pruneForeignColumns, migrateForeignColumns, getEmployees, normalizeStore, normalizeRole } =
       await import('@/lib/googleSheets')
     if (!hasGoogleCredentials()) {
       return NextResponse.json({ message: 'Google Sheets not configured' }, { status: 500 })
@@ -56,7 +56,31 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ok: true, ...result })
     }
 
-    return NextResponse.json({ message: 'Unknown action. Use refresh | add-col | rebuild.' }, { status: 400 })
+    if (action === 'prune') {
+      if (!tab) return NextResponse.json({ message: 'tab is required for prune' }, { status: 400 })
+      if (String(body?.confirm || '').trim().toUpperCase() !== 'PRUNE') {
+        return NextResponse.json(
+          { message: 'Set confirm:"PRUNE" to acknowledge foreign-group columns will be deleted from the tab.' },
+          { status: 400 },
+        )
+      }
+      const result = await pruneForeignColumns(tab, resolvedStore)
+      return NextResponse.json({ ok: true, ...result })
+    }
+
+    if (action === 'migrate') {
+      if (!tab) return NextResponse.json({ message: 'tab is required for migrate' }, { status: 400 })
+      if (String(body?.confirm || '').trim().toUpperCase() !== 'MIGRATE') {
+        return NextResponse.json(
+          { message: 'Set confirm:"MIGRATE" to move foreign-group columns into their correct sheets (source columns are deleted after copying).' },
+          { status: 400 },
+        )
+      }
+      const result = await migrateForeignColumns(tab, resolvedStore)
+      return NextResponse.json({ ok: true, ...result })
+    }
+
+    return NextResponse.json({ message: 'Unknown action. Use refresh | add-col | rebuild | prune | migrate.' }, { status: 400 })
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error)
     console.error('POST /api/admin/maintenance failed:', msg)

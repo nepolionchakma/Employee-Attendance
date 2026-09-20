@@ -37,7 +37,7 @@ export default function HomeSummaryTable({ stats, user }: { stats: StatRow[]; us
         <table className="home-summary-table">
           <thead>
             <tr>
-              <th>Employee</th>
+              <th>Name</th>
               <th>Present</th>
               <th>Absent</th>
             </tr>

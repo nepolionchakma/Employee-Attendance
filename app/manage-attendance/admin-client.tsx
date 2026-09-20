@@ -245,6 +245,41 @@ export default function AdminClient({ user }: { user: AdminClientUser }) {
     await fetchData(store, tab)
   }
 
+  const handlePrune = async () => {
+    if (saving || loading) return
+    const ok = window.confirm(
+      `Move other groups' data out of ${store} / ${tab} into their correct sheets?\n\nForeign columns are COPIED to the right sheet first, then deleted here. Missing ${store} members will be added.`,
+    )
+    if (!ok) return
+    setSaving(true)
+    setError('')
+    setSuccess('')
+    try {
+      const res = await fetch('/api/admin/maintenance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tab, store, action: 'migrate', confirm: 'MIGRATE' }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.message || 'Migrate failed')
+      const moved = Array.isArray(data.moved) ? data.moved.length : 0
+      const conflicts = Array.isArray(data.conflicts) ? data.conflicts.length : 0
+      setSuccess(`Migrated ${store} / ${tab}: moved ${moved} member(s), conflicts ${conflicts}, added ${data.addedCount ?? 0}`)
+      if (conflicts > 0) {
+        setSuccess(
+          `Migrated ${store} / ${tab}: moved ${moved}, added ${data.addedCount ?? 0}, ${conflicts} conflict(s) kept live values — check console.`,
+        )
+        console.warn('Migrate conflicts:', data.conflicts)
+      }
+      clearPending()
+      await fetchData(store, tab)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setSaving(false)
+    }
+  }
+
   if (loading && !grid) {
     return (
       <div className="page admin-page">
@@ -303,6 +338,14 @@ export default function AdminClient({ user }: { user: AdminClientUser }) {
           </select>
           <button className="btn btn-icon admin-refresh-btn" onClick={() => fetchData(store, tab)} disabled={loading || saving} title="Reload sheet">
             <RefreshIcon /> {loading ? 'Refreshing…' : 'Refresh'}
+          </button>
+          <button
+            className="btn btn-icon admin-discard-btn"
+            onClick={handlePrune}
+            disabled={loading || saving || !tab}
+            title="Delete other groups' columns from this tab and add missing members of this group"
+          >
+            <DiscardIcon /> Prune
           </button>
         </div>
 

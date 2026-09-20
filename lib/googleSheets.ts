@@ -167,6 +167,29 @@ export async function storeForEmail(email: string): Promise<StoreKind> {
   return 'employee'
 }
 
+/** Expected member role for a store — strict isolation between sheets. */
+export function roleForStore(store: StoreKind): MemberRole {
+  if (store === 'bootcamp') return 'Bootcamp'
+  if (store === 'employee') return 'Employee'
+  return 'Admin'
+}
+
+/**
+ * Rejects writes for emails whose *known* Members role belongs to another store.
+ * Unknown emails (not in Members) are allowed — tests and legacy columns need them.
+ */
+async function assertStoreMember(email: string | null | undefined, store: StoreKind) {
+  const e = String(email || '').trim().toLowerCase()
+  if (!e) return
+  const role = await getRoleForEmail(e)
+  if (!role) return
+  if (role !== roleForStore(store)) {
+    throw new Error(
+      `"${e}" is ${role} and belongs to the ${role.toLowerCase()} sheet — not the ${store} sheet.`,
+    )
+  }
+}
+
 async function resolveEmployeesSheetName(sheets: any) {
   return EMPLOYEES_SHEET
 }
@@ -1405,6 +1428,7 @@ export async function batchUpdateAttendanceCells(tab: string, updates: { employe
   const allowed = ['', 'On-site', 'Remote', 'Absent']
 
   const data = []
+  const batchNamesRow = findEmployeeNamesRow(rows, headerRow)
   for (const u of updates) {
     const employeeName = String(u.employeeName || u.name || '').trim()
     const employeeEmail = String(u.employeeEmail || u.email || '').trim().toLowerCase()
@@ -1413,6 +1437,15 @@ export async function batchUpdateAttendanceCells(tab: string, updates: { employe
     if (!allowed.includes(normalized)) {
       throw new Error(`status must be one of: ${allowed.filter(Boolean).join(', ')} or empty`)
     }
+    // Strict isolation: never write another group's member into this store's tab.
+    let checkEmail = employeeEmail
+    if (!checkEmail && employeeName) {
+      const hit = (rows[batchNamesRow] || []).find(
+        (h: any) => parseHeaderName(String(h || '').trim()).toLowerCase() === employeeName.toLowerCase(),
+      )
+      checkEmail = parseHeaderEmail(String(hit || '')) || ''
+    }
+    await assertStoreMember(checkEmail, normalizedStore)
     const colIdx = findEmployeeColumn(rows, headerRow, employeeName, employeeEmail)
     const rowIdx = findDayRow(rows, headerRow, Number(day) || day)
     if (is3col) {
@@ -1544,6 +1577,17 @@ export async function adminUpdateCell(tab: string, employeeName: string, dayLabe
   const colIdx = findEmployeeColumn(rows, headerRow, employeeName, employeeEmail)
   const rowIdx = findDayRow(rows, headerRow, Number(dayLabel) || dayLabel)
 
+  // Strict isolation: never write another group's member into this store's tab.
+  let checkEmail = String(employeeEmail || '').trim()
+  if (!checkEmail && employeeName) {
+    const namesRow = findEmployeeNamesRow(rows, headerRow)
+    const hit = (rows[namesRow] || []).find(
+      (h: any) => parseHeaderName(String(h || '').trim()).toLowerCase() === employeeName.toLowerCase(),
+    )
+    checkEmail = parseHeaderEmail(String(hit || '')) || ''
+  }
+  await assertStoreMember(checkEmail, normalizedStore)
+
   const allowed = ['', 'On-site', 'Remote', 'Absent']
   const normalized = String(status ?? '').trim()
   if (!allowed.includes(normalized)) {
@@ -1652,7 +1696,21 @@ export async function recreateAttendanceTab(tab: string, employees: { name: stri
   const { year, month } = parsed || nowParts()
   await createTab(sheets, title, year, month, normalizedStore)
 
-  await addAllEmployeeColumns(sheets, title, employees, normalizedStore)
+  // Strict isolation: only this store's role (unknown emails allowed).
+  const expected = roleForStore(normalizedStore)
+  const kept: { name: string; email: string }[] = []
+  const dropped: string[] = []
+  for (const e of employees) {
+    const em = String(e?.email || '').trim()
+    const role = em ? await getRoleForEmail(em) : null
+    if (role && role !== expected) {
+      dropped.push(`${String(e?.name || em)} (${role})`)
+      continue
+    }
+    kept.push(e)
+  }
+  if (dropped.length) console.log(`Skipped ${dropped.length} non-${expected} member(s) on rebuild of "${title}": ${dropped.join(', ')}`)
+  await addAllEmployeeColumns(sheets, title, kept, normalizedStore)
 
   await loadGrid(sheets, title, normalizedStore)
   console.log(`Recreated tab "${title}" with ${employees.filter((e) => String(e?.email || '').trim()).length} employee columns`)
@@ -1674,10 +1732,265 @@ export async function addEmployeeColumnToTab(tab: string, employeeName: string, 
   if (!tabs.includes(title)) throw new Error(`Sheet tab "${title}" not found`)
   const email = String(employeeEmail || '').trim()
   if (!email) throw new Error('employeeEmail required')
+  await assertStoreMember(email, normalizedStore)
 
   await ensureEmployeeColumn(sheets, title, String(employeeName || '').trim() || email.split('@')[0], email, normalizedStore)
   await loadGrid(sheets, title, normalizedStore)
   return true
+}
+
+/**
+ * Strict isolation cleanup for one tab: deletes Presence/Time blocks whose member
+ * has a *known* Members role from another group, then adds missing same-role
+ * members. Unknown emails (not in Members) are left untouched.
+ * Returns a report of what changed.
+ */
+export async function pruneForeignColumns(tab: string, store?: unknown) {
+  if (!hasGoogleCredentials() || !ADMIN_SPREADSHEET_ID) throw new Error('Google Sheets not configured')
+  const normalizedStore = normalizeStore(store ?? 'admin')
+  const expected = roleForStore(normalizedStore)
+  const sid = spreadsheetIdForStore(normalizedStore)
+  const sheets = await sheetsClient(sid)
+  const title = (tab || '').trim() || (await ensureMonthTab(sheets, normalizedStore))
+  const tabs = await listTabs(sheets, sid)
+  if (!tabs.includes(title)) throw new Error(`Sheet tab "${title}" not found`)
+
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: sid,
+    range: title,
+    valueRenderOption: 'FORMATTED_VALUE',
+  })
+  const rows = res.data.values || []
+  const headerRow = findHeaderRow(rows)
+  if (!isAttendanceStructure(rows, headerRow)) {
+    throw new Error(`Tab "${title}" is not an attendance sheet (no Presence/Time structure)`)
+  }
+  const namesRow = findEmployeeNamesRow(rows, headerRow)
+  const headers = rows[namesRow] || []
+
+  const directory = await getEmployees({ forceRefresh: true })
+  const roleByEmail = new Map(
+    directory.map((m: { email: string; role?: string }) => [
+      String(m.email || '').trim().toLowerCase(),
+      normalizeRole(m.role || ''),
+    ]),
+  )
+
+  const foreign: { col: number; header: string; role: string }[] = []
+  for (let c = 2; c < headers.length; c += COLS_PER_EMPLOYEE) {
+    const header = String(headers[c] ?? '').trim()
+    if (!header) continue
+    const email = parseHeaderEmail(header)
+    const role = email ? roleByEmail.get(email) : undefined
+    if (role && role !== expected) foreign.push({ col: c, header, role })
+  }
+
+  const removed: string[] = []
+  if (foreign.length) {
+    const sheetId = await sheetIdFor(sheets, title, sid)
+    if (sheetId == null) throw new Error(`Sheet tab "${title}" not found`)
+    // Delete right-to-left so earlier column indexes stay valid.
+    const requests = [...foreign]
+      .sort((a, b) => b.col - a.col)
+      .map((f) => ({
+        deleteDimension: {
+          range: { sheetId, dimension: 'COLUMNS', startIndex: f.col, endIndex: f.col + COLS_PER_EMPLOYEE },
+        },
+      }))
+    await sheets.spreadsheets.batchUpdate({ spreadsheetId: sid, requestBody: { requests } })
+    removed.push(...foreign.map((f) => `${f.header} (${f.role})`))
+  }
+
+  const sameRole = directory
+    .filter((m: { email: string; role?: string }) =>
+      normalizeRole(m.role || '') === expected && String(m.email || '').includes('@'),
+    )
+    .map((m: { name: string; email: string }) => ({ name: m.name, email: m.email }))
+  const addedCount = await addAllEmployeeColumns(sheets, title, sameRole, normalizedStore)
+
+  await loadGrid(sheets, title, normalizedStore)
+  console.log(`Pruned "${title}" (${normalizedStore}): removed ${removed.length}, added ${addedCount}`)
+  return { tab: title, store: normalizedStore, removed, addedCount }
+}
+
+const REAL_STATUSES = ['On-site', 'Remote']
+function isRealStatus(status: string) {
+  return REAL_STATUSES.includes(String(status || '').trim())
+}
+
+async function ensureTab(sheets: any, sid: string, store: StoreKind, title: string) {
+  const tabs = await listTabs(sheets, sid)
+  if (tabs.includes(title)) return title
+  const parsed = parseMonthTitle(title)
+  const { year, month } = parsed || nowParts()
+  return createTab(sheets, title, year, month, store)
+}
+
+/**
+ * Moves legacy mixed data to the right sheets: for every column in this store's
+ * tab whose member has a *known* role from another group, copies day values into
+ * the same tab of the correct store's spreadsheet (merge rule below), then deletes
+ * the foreign columns here and adds missing same-role members.
+ *
+ * Merge rule per day (source = this tab, target = correct sheet):
+ * - source empty -> skip
+ * - target empty -> copy source
+ * - source real (On-site/Remote), target auto (Absent/Holiday/empty) -> copy source
+ * - target real, source not real -> keep target
+ * - both real but different -> keep target + report conflict
+ * - both non-real but different -> keep target (live sheet wins)
+ */
+export async function migrateForeignColumns(tab: string, store?: unknown) {
+  if (!hasGoogleCredentials() || !ADMIN_SPREADSHEET_ID) throw new Error('Google Sheets not configured')
+  const normalizedStore = normalizeStore(store ?? 'admin')
+  const expected = roleForStore(normalizedStore)
+  const sid = spreadsheetIdForStore(normalizedStore)
+  const sheets = await sheetsClient(sid)
+  const title = (tab || '').trim() || (await ensureMonthTab(sheets, normalizedStore))
+  const tabs = await listTabs(sheets, sid)
+  if (!tabs.includes(title)) throw new Error(`Sheet tab "${title}" not found`)
+
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: sid,
+    range: title,
+    valueRenderOption: 'FORMATTED_VALUE',
+  })
+  const rows = res.data.values || []
+  const headerRow = findHeaderRow(rows)
+  if (!isAttendanceStructure(rows, headerRow)) {
+    throw new Error(`Tab "${title}" is not an attendance sheet (no Presence/Time structure)`)
+  }
+  const namesRow = findEmployeeNamesRow(rows, headerRow)
+  const headers = rows[namesRow] || []
+
+  const directory = await getEmployees({ forceRefresh: true })
+  const roleByEmail = new Map(
+    directory.map((m: { email: string; role?: string }) => [
+      String(m.email || '').trim().toLowerCase(),
+      normalizeRole(m.role || ''),
+    ]),
+  )
+
+  const foreign: { col: number; header: string; email: string; role: MemberRole }[] = []
+  for (let c = 2; c < headers.length; c += COLS_PER_EMPLOYEE) {
+    const header = String(headers[c] ?? '').trim()
+    if (!header) continue
+    const email = parseHeaderEmail(header)
+    const role = email ? roleByEmail.get(email) : undefined
+    if (email && role && role !== expected) foreign.push({ col: c, header, email, role })
+  }
+
+  const moved: { email: string; days: number[]; to: StoreKind }[] = []
+  const conflicts: { email: string; day: string; kept: string; skipped: string }[] = []
+
+  // Group foreign columns by their correct target store.
+  const byTarget = new Map<StoreKind, typeof foreign>()
+  for (const f of foreign) {
+    const target: StoreKind = f.role === 'Bootcamp' ? 'bootcamp' : f.role === 'Admin' ? 'admin' : 'employee'
+    if (!byTarget.has(target)) byTarget.set(target, [])
+    byTarget.get(target)!.push(f)
+  }
+
+  for (const [targetStore, cols] of byTarget) {
+    const targetSid = spreadsheetIdForStore(targetStore)
+    const targetSheets = await sheetsClient(targetSid)
+    const targetTitle = await ensureTab(targetSheets, targetSid, targetStore, title)
+    const targetRes = await targetSheets.spreadsheets.values.get({
+      spreadsheetId: targetSid,
+      range: targetTitle,
+      valueRenderOption: 'FORMATTED_VALUE',
+    })
+    const targetRows = targetRes.data.values || []
+    const targetHeaderRow = findHeaderRow(targetRows)
+
+    const data: { range: string; values: string[][] }[] = []
+    for (const f of cols) {
+      let targetCol = findEmployeeColumnByEmail(targetRows, targetHeaderRow, f.email)
+      if (targetCol === -1) {
+        await ensureEmployeeColumn(targetSheets, targetTitle, parseHeaderName(f.header) || f.email, f.email, targetStore)
+        const reread = await targetSheets.spreadsheets.values.get({
+          spreadsheetId: targetSid,
+          range: targetTitle,
+          valueRenderOption: 'FORMATTED_VALUE',
+        })
+        const rereadRows = reread.data.values || []
+        targetCol = findEmployeeColumnByEmail(rereadRows, findHeaderRow(rereadRows), f.email)
+        if (targetCol === -1) throw new Error(`Could not create column for "${f.email}" in ${targetStore} / ${targetTitle}`)
+        // Refresh snapshot so later lookups see the new column.
+        targetRows.length = 0
+        targetRows.push(...rereadRows)
+      }
+      const movedDays: number[] = []
+      for (let i = headerRow + 1; i < rows.length; i++) {
+        const dayLabel = String(rows[i]?.[0] ?? '').trim()
+        if (!dayLabel || dayLabel === ABSENT_SECTION || dayLabel.toLowerCase() === 'total') break
+        if (!Number.isInteger(Number(dayLabel))) continue
+        const sStatus = String(rows[i]?.[f.col] ?? '').trim()
+        if (!sStatus) continue
+        const sTime = String(rows[i]?.[f.col + 1] ?? '').trim()
+        let tRowIdx = -1
+        try {
+          tRowIdx = findDayRow(targetRows, targetHeaderRow, Number(dayLabel) || dayLabel)
+        } catch {
+          continue // day row missing in target — skip, report below
+        }
+        const tStatus = String(targetRows[tRowIdx]?.[targetCol] ?? '').trim()
+        const tTime = String(targetRows[tRowIdx]?.[targetCol + 1] ?? '').trim()
+        if (sStatus === tStatus && sTime === tTime) continue
+        const sReal = isRealStatus(sStatus)
+        const tReal = isRealStatus(tStatus)
+        const shouldCopy = !tStatus || (sReal && !tReal)
+        if (shouldCopy) {
+          data.push({
+            range: `${targetTitle}!${columnLetter(targetCol)}${tRowIdx + 1}:${columnLetter(targetCol + 1)}${tRowIdx + 1}`,
+            values: [[sStatus, sTime]],
+          })
+          movedDays.push(Number(dayLabel))
+          // Keep snapshot in sync for subsequent comparisons.
+          targetRows[tRowIdx][targetCol] = sStatus
+          targetRows[tRowIdx][targetCol + 1] = sTime
+        } else if (sReal && tReal) {
+          conflicts.push({ email: f.email, day: dayLabel, kept: `${tStatus} ${tTime}`.trim(), skipped: `${sStatus} ${sTime}`.trim() })
+        }
+        // else: target (live sheet) wins silently for non-real differences
+      }
+      if (movedDays.length) moved.push({ email: f.email, days: movedDays, to: targetStore })
+    }
+    if (data.length) {
+      await targetSheets.spreadsheets.values.batchUpdate({
+        spreadsheetId: targetSid,
+        requestBody: { valueInputOption: 'USER_ENTERED', data },
+      })
+    }
+    await loadGrid(targetSheets, targetTitle, targetStore)
+  }
+
+  // Delete the foreign blocks here (right-to-left), then backfill same-role members.
+  const removed: string[] = []
+  if (foreign.length) {
+    const sheetId = await sheetIdFor(sheets, title, sid)
+    if (sheetId == null) throw new Error(`Sheet tab "${title}" not found`)
+    const requests = [...foreign]
+      .sort((a, b) => b.col - a.col)
+      .map((f) => ({
+        deleteDimension: {
+          range: { sheetId, dimension: 'COLUMNS', startIndex: f.col, endIndex: f.col + COLS_PER_EMPLOYEE },
+        },
+      }))
+    await sheets.spreadsheets.batchUpdate({ spreadsheetId: sid, requestBody: { requests } })
+    removed.push(...foreign.map((f) => `${f.header} (${f.role})`))
+  }
+
+  const sameRole = directory
+    .filter((m: { email: string; role?: string }) =>
+      normalizeRole(m.role || '') === expected && String(m.email || '').includes('@'),
+    )
+    .map((m: { name: string; email: string }) => ({ name: m.name, email: m.email }))
+  const addedCount = await addAllEmployeeColumns(sheets, title, sameRole, normalizedStore)
+
+  await loadGrid(sheets, title, normalizedStore)
+  console.log(`Migrated "${title}" (${normalizedStore}): moved ${moved.length} member(s), conflicts ${conflicts.length}, removed ${removed.length}, added ${addedCount}`)
+  return { tab: title, store: normalizedStore, moved, conflicts, removed, addedCount }
 }
 
 /**

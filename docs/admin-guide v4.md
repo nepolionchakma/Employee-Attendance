@@ -48,9 +48,6 @@ If the sheet isn’t set up yet, the dashboard will show a message like “Atten
 
 Use the **Spreadsheet** switcher on the Manage Attendance page to view Admin / Employee / Bootcamp sheets.
 
-Each sheet strictly holds only its own group: Bootcamp sheet = Bootcamp members only, Employee sheet = Employees only, Admin sheet = Admins only. Wrong-group writes are rejected automatically.
-
-If an old tab still has mixed columns (from before the split), open that Spreadsheet + tab and press **Prune**: other groups' columns are deleted and missing members of this group are added.
 
 Admins can see the full list of employees/students and their attendance for the month.
 
