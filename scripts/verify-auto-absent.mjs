@@ -1,5 +1,5 @@
 /**
- * Verification test for auto-absent (Presence + Time format) + custom AUTO_ABSENT_TIME.
+ * Verification test for auto-absent (merged Presence + Location format) + custom AUTO_ABSENT_TIME.
  * Isolated: works ONLY on a scratch tab. The submit/getAttendance phase runs in a
  * child process with ATTENDANCE_SHEET_TAB=<scratch> so the live month tab is never touched.
  *
@@ -73,7 +73,7 @@ if (mode === 'setup') {
   const dayRow = (d) => rows.findIndex((r) => cell(r[0]) === String(d))
 
   const presenceCol = rows[1].indexOf('Presence')
-  const timeCol = rows[1].indexOf('Time')
+  const locCol = rows[1].indexOf('Location')
   const testCol = rows[0].findIndex((h) => cell(h).includes('testuser.verify@gmail.com'))
   const allMemberCols = rows[0].filter((h) => cell(h).includes('@')).length
   const membersRes = await sheets.spreadsheets.values.get({ spreadsheetId: SID, range: 'Members', valueRenderOption: 'FORMATTED_VALUE' })
@@ -83,31 +83,31 @@ if (mode === 'setup') {
 
   // 1. Canonical structure: Timestamp row + Presence/Time sub-headers
   ok(cell(rows[0][0]) === 'Timestamp', '1. canonical structure: Timestamp row present')
-  ok(presenceCol !== -1 && timeCol === presenceCol + 1, `1. sub-headers are Presence + Time (got "${cell(rows[1][presenceCol])}" / "${cell(rows[1][timeCol])}")`)
+  ok(presenceCol !== -1 && locCol === presenceCol + 1, `1. sub-headers are Presence + Location (got "${cell(rows[1][presenceCol])}" / "${cell(rows[1][locCol])}")`)
   ok(testCol !== -1 && testCol % 2 === 0, `1. Test User column exists at even index ${testCol}`)
   ok(allMemberCols === memberCount + 1, `7. ALL member columns pre-created on new tab (got ${allMemberCols}, members=${memberCount})`)
 
-  // 2. Auto-absent: Presence = 'Absent' (pure), Time = custom AUTO
+  // 2. Auto-absent: Presence = 'Absent - <custom AUTO time>' (merged), Location = N/A
   const pastDays = []
   for (let d = 1; d < today; d++) pastDays.push(d)
   const firstPast = pastDays.find((d) => weekdayOf(d) !== 'Fri')
   const firstFri = pastDays.find((d) => weekdayOf(d) === 'Fri')
   if (firstPast !== undefined) {
     const r = dayRow(firstPast)
-    ok(cell(rows[r][presenceCol]) === 'Absent', `2. past day ${firstPast} Presence = "Absent" (got "${cell(rows[r][presenceCol])}")`)
-    ok(cell(rows[r][timeCol]) === AUTO, `2. past day ${firstPast} Time = "${AUTO}" (got "${cell(rows[r][timeCol])}")`)
+    ok(cell(rows[r][presenceCol]) === `Absent - ${AUTO}`, `2. past day ${firstPast} Presence = "Absent - ${AUTO}" (got "${cell(rows[r][presenceCol])}")`)
+    ok(cell(rows[r][locCol]) === 'N/A', `2. past day ${firstPast} Location = N/A (got "${cell(rows[r][locCol])}")`)
   }
   // Real member column spot-check
   const memberNamesIdx = rows[0].findIndex((h) => cell(h).includes('arupdas@gmail.com'))
   if (firstPast !== undefined && memberNamesIdx !== -1) {
     const r = dayRow(firstPast)
-    ok(cell(rows[r][memberNamesIdx]) === 'Absent', `7. real member Presence = "Absent" (got "${cell(rows[r][memberNamesIdx])}")`)
-    ok(cell(rows[r][memberNamesIdx + 1]) === AUTO, `7. real member Time = "${AUTO}" (got "${cell(rows[r][memberNamesIdx + 1])}")`)
+    ok(cell(rows[r][memberNamesIdx]) === `Absent - ${AUTO}`, `7. real member Presence = "Absent - ${AUTO}" (got "${cell(rows[r][memberNamesIdx])}")`)
+    ok(cell(rows[r][memberNamesIdx + 1]) === 'N/A', `7. real member Location = N/A (got "${cell(rows[r][memberNamesIdx + 1])}")`)
   }
   if (firstFri !== undefined) {
     const r = dayRow(firstFri)
     ok(cell(rows[r][presenceCol]) === 'Holiday', `3. Friday ${firstFri} = Holiday`)
-    ok(cell(rows[r][timeCol]) === '', '3. Friday Time empty')
+    ok(cell(rows[r][locCol]) === '', '3. Friday Location empty')
   }
   const rToday = dayRow(today)
   ok(cell(rows[rToday]?.[testCol]) === '', '3. today is NOT auto-filled')
@@ -122,8 +122,8 @@ if (mode === 'submit') {
   const mod = await import('../lib/googleSheets.ts')
   // Explicit 'admin' store: the scratch tab is created in the admin spreadsheet,
   // so reads/writes must stay there regardless of member roles.
-  await mod.markAttendance('Test User', 'testuser.verify@gmail.com', today, 'On-site', '2:45 PM', 'admin')
-  await mod.markAttendance('Arup Das', 'arupdas@gmail.com', today, 'Remote', '9:05 AM', 'admin')
+  await mod.markAttendance('Test User', 'testuser.verify@gmail.com', today, 'On-site', '2:45 PM', 'Test Road, Dhaka', 'admin')
+  await mod.markAttendance('Arup Das', 'arupdas@gmail.com', today, 'Remote', '9:05 AM', 'Gulshan Avenue, Dhaka', 'admin')
   const got = await mod.getAttendance('Test User', 'testuser.verify@gmail.com', today, 'admin')
   const gotPast = await mod.getAttendance('Test User', 'testuser.verify@gmail.com', 1, 'admin')
   const gotMember = await mod.getAttendance('Arup Das', 'arupdas@gmail.com', today, 'admin')
@@ -140,15 +140,15 @@ if (mode === 'check') {
   const testCol = rows[0].findIndex((h) => cell(h).includes('testuser.verify@gmail.com'))
   const memberCol = rows[0].findIndex((h) => cell(h).includes('arupdas@gmail.com'))
 
-  ok(cell(rows[rToday][testCol]) === 'On-site', `4. submit writes Presence "On-site" (got "${cell(rows[rToday][testCol])}")`)
-  ok(cell(rows[rToday][testCol + 1]) === '2:45 PM', `4. submit writes Time "2:45 PM" (got "${cell(rows[rToday][testCol + 1])}")`)
-  ok(cell(rows[rToday][memberCol]) === 'Remote', `4b. member Presence "Remote" (got "${cell(rows[rToday][memberCol])}")`)
-  ok(cell(rows[rToday][memberCol + 1]) === '9:05 AM', `4b. member Time "9:05 AM" (got "${cell(rows[rToday][memberCol + 1])}")`)
+  ok(cell(rows[rToday][testCol]) === 'On-site - 2:45 PM', `4. submit writes merged Presence "On-site - 2:45 PM" (got "${cell(rows[rToday][testCol])}")`)
+  ok(cell(rows[rToday][testCol + 1]) === 'Test Road, Dhaka', `4. submit writes Location "Test Road, Dhaka" (got "${cell(rows[rToday][testCol + 1])}")`)
+  ok(cell(rows[rToday][memberCol]) === 'Remote - 9:05 AM', `4b. member merged Presence "Remote - 9:05 AM" (got "${cell(rows[rToday][memberCol])}")`)
+  ok(cell(rows[rToday][memberCol + 1]) === 'Gulshan Avenue, Dhaka', `4b. member Location "Gulshan Avenue, Dhaka" (got "${cell(rows[rToday][memberCol + 1])}")`)
 
   const out = JSON.parse(process.env.SUBMIT_OUT || '{}')
-  ok(out.got?.attended && out.got?.status === 'On-site' && out.got?.time === '2:45 PM' && out.got?.location === undefined, `5. getAttendance(today) -> ${JSON.stringify(out.got)}`)
-  ok(out.gotPast?.attended && out.gotPast?.status === 'Absent' && out.gotPast?.time === AUTO, `5. getAttendance(past) -> ${JSON.stringify(out.gotPast)}`)
-  ok(out.gotMember?.attended && out.gotMember?.status === 'Remote' && out.gotMember?.time === '9:05 AM', `5b. getAttendance(member) -> ${JSON.stringify(out.gotMember)}`)
+  ok(out.got?.attended && out.got?.status === 'On-site' && out.got?.time === '2:45 PM' && out.got?.location === 'Test Road, Dhaka', `5. getAttendance(today) -> ${JSON.stringify(out.got)}`)
+  ok(out.gotPast?.attended && out.gotPast?.status === 'Absent' && out.gotPast?.time === AUTO && out.gotPast?.location === 'N/A', `5. getAttendance(past) -> ${JSON.stringify(out.gotPast)}`)
+  ok(out.gotMember?.attended && out.gotMember?.status === 'Remote' && out.gotMember?.time === '9:05 AM' && out.gotMember?.location === 'Gulshan Avenue, Dhaka', `5b. getAttendance(member) -> ${JSON.stringify(out.gotMember)}`)
 
   const absentRow = rows.find((r) => cell(r[0]) === 'Absent Days')
   ok(absentRow && absentRow.length > 0, '6. Absent Days row present')

@@ -8,6 +8,7 @@ const TZ = 'Asia/Dhaka'
 export interface HistoryDay {
   status: string
   time: string
+  location?: string
 }
 
 function monthLabel(year: number, month: number) {
@@ -72,7 +73,7 @@ export async function GET(request: NextRequest) {
       for (let d = 1; d <= now.day; d++) {
         const result = await getAttendanceStatus({ employeeName: name, employeeEmail: email, day: d })
         if (result.attended && result.status) {
-          days[String(d)] = { status: result.status, time: result.time || '' }
+          days[String(d)] = { status: result.status, time: result.time || '', location: result.location || '' }
         }
       }
     }
@@ -102,7 +103,11 @@ export async function GET(request: NextRequest) {
     for (const entry of grid.days || []) {
       const status = String(entry.values?.[header] ?? '').trim()
       if (!status) continue
-      days[String(entry.date)] = { status, time: String(entry.timeValues?.[header] ?? '').trim() }
+      days[String(entry.date)] = {
+        status,
+        time: String(entry.timeValues?.[header] ?? '').trim(),
+        location: String(entry.locationValues?.[header] ?? '').trim(),
+      }
     }
     return NextResponse.json({ ...base, tabExists: true, hasColumn: true, tab: grid.tab, days })
   } catch (error) {

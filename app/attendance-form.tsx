@@ -16,10 +16,48 @@ interface CheckState {
   message: string
 }
 
+/**
+ * Resolves the device position to the 'road, district' address stored in the
+ * Location column (OpenStreetMap Nominatim — no API key needed). Falls back to
+ * raw coordinates when the address lookup fails, and to an empty string when
+ * location access is unavailable or denied.
+ */
+function getLocation(): Promise<string> {
+  return new Promise((resolve) => {
+    if (!('geolocation' in navigator)) {
+      resolve('')
+      return
+    }
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        const { latitude, longitude } = pos.coords
+        const coords = `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`
+        try {
+          const res = await fetch(
+            `https://nominatim.openstreetmap.org/reverse?lat=${latitude}&lon=${longitude}&format=json&accept-language=en`,
+            { headers: { Accept: 'application/json' } },
+          )
+          const data = await res.json()
+          const addr = data?.address || {}
+          const road = addr.road || addr.pedestrian || addr.neighbourhood || addr.county || ''
+          const district = addr.state_district || addr.city_district || addr.city || ''
+          resolve([road, district].filter(Boolean).join(', ') || coords)
+        } catch {
+          resolve(coords)
+        }
+      },
+      () => resolve(''),
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 },
+    )
+  })
+}
+
 export default function AttendanceForm({ employeeName, employeeEmail, role }: AttendanceFormProps) {
   const [status, setStatus] = useState('On-site')
   const [check, setCheck] = useState<CheckState | null>(null)
   const [submitting, setSubmitting] = useState(false)
+  // Road + district captured with the submitted attendance, shown as feedback.
+  const [capturedLocation, setCapturedLocation] = useState('')
   const router = useRouter()
 
   useEffect(() => {
@@ -65,12 +103,15 @@ export default function AttendanceForm({ employeeName, employeeEmail, role }: At
         timeZone: 'Asia/Dhaka',
       }).format(new Date())
 
+      const location = await getLocation()
+
       const res = await fetch('/api/attendance', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ employeeName, employeeEmail, status, time }),
+        body: JSON.stringify({ employeeName, employeeEmail, status, time, location }),
       })
       const data = await res.json()
+      setCapturedLocation(location)
 
       if (data?.holiday) {
         setCheck({ kind: 'holiday', message: data.message })
@@ -143,6 +184,7 @@ export default function AttendanceForm({ employeeName, employeeEmail, role }: At
         </form>
 
         {check && <p className={`attendance-status ${check.kind}`}>{check.message}</p>}
+        {capturedLocation && <p className="attendance-location">Location recorded: {capturedLocation}</p>}
       </div>
     </div>
   )

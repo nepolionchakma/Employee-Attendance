@@ -78,12 +78,12 @@ try {
   })
   await sheets.spreadsheets.values.update({
     spreadsheetId: ADMIN_ID, range: `${scratch}!${colLetter(startCol)}${headerRow + 1}:${colLetter(startCol + 1)}${headerRow + 1}`,
-    valueInputOption: 'USER_ENTERED', requestBody: { values: [['Presence', 'Time']] },
+    valueInputOption: 'USER_ENTERED', requestBody: { values: [['Presence', 'Location']] },
   })
   const dayRowIdx = rows.findIndex((r, i) => i > headerRow && String(r?.[0] || '').trim() === String(DAY))
   await sheets.spreadsheets.values.update({
     spreadsheetId: ADMIN_ID, range: `${scratch}!${colLetter(startCol)}${dayRowIdx + 1}:${colLetter(startCol + 1)}${dayRowIdx + 1}`,
-    valueInputOption: 'USER_ENTERED', requestBody: { values: [['On-site', '9:01 AM']] },
+    valueInputOption: 'USER_ENTERED', requestBody: { values: [['On-site - 9:01 AM', 'Test Road, Dhaka']] },
   })
   console.log('planted foreign Employee column in admin scratch tab')
 
@@ -103,8 +103,8 @@ try {
   const ecol = enames.findIndex((h) => String(h || '').includes('arupdas@gmail.com'))
   ok(ecol !== -1, 'employee scratch: arupdas column present')
   const eday = empAfter.findIndex((r, i) => i > ehead && String(r?.[0] || '').trim() === String(DAY))
-  ok(String(empAfter[eday]?.[ecol] || '').trim() === 'On-site', `employee scratch: day-${DAY} status moved (got "${empAfter[eday]?.[ecol]}")`)
-  ok(String(empAfter[eday]?.[ecol + 1] || '').trim() === '9:01 AM', `employee scratch: day-${DAY} time moved (got "${empAfter[eday]?.[ecol + 1]}")`)
+  ok(String(empAfter[eday]?.[ecol] || '').trim() === 'On-site - 9:01 AM', `employee scratch: day-${DAY} presence moved (got "${empAfter[eday]?.[ecol]}")`)
+  ok(String(empAfter[eday]?.[ecol + 1] || '').trim() === 'Test Road, Dhaka', `employee scratch: day-${DAY} location moved (got "${empAfter[eday]?.[ecol + 1]}")`)
   ok((result.moved || []).some((m) => m.email === 'arupdas@gmail.com' && m.days.includes(DAY)), 'migrate report lists the moved member+day')
 } finally {
   // 5. Cleanup temp tabs (always)

@@ -243,6 +243,12 @@ a {
   color: #b45309;
 }
 
+.attendance-location {
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--text);
+}
+
 .admin-page {
   max-width: 1300px;
 }
@@ -492,7 +498,8 @@ a {
   cursor: text;
 }
 
-.admin-time-input:focus {
+.admin-time-input:focus,
+.admin-loc-input:focus {
   border-color: var(--accent-border);
   outline: none;
 }
