@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAttendanceStatus, markAttendanceStatus } from '@/lib/storage'
-import { nowParts } from '@/lib/googleSheets'
+import { nowParts, adminCanSubmitAttendance, storeForEmail, getTodayHoliday } from '@/lib/googleSheets'
 import { getSessionUser } from '@/lib/auth'
 
 export const runtime = 'nodejs'
@@ -25,6 +25,14 @@ export async function POST(request: NextRequest) {
   if (!user.isAdmin && employeeEmail.toLowerCase() !== String(user.email).toLowerCase()) {
     return NextResponse.json({ message: 'Forbidden: can only mark own attendance' }, { status: 403 })
   }
+  // Env toggle: ADMIN_CAN_SUBMIT_ATTENDANCE=no blocks admins from submitting
+  // (they can still manage all sheets). Non-admins always submit to their own store.
+  if (user.isAdmin && !adminCanSubmitAttendance()) {
+    return NextResponse.json(
+      { message: 'Admin attendance submission is disabled (ADMIN_CAN_SUBMIT_ATTENDANCE=no).' },
+      { status: 403 },
+    )
+  }
   if (!VALID_STATUSES.includes(status)) {
     return NextResponse.json(
       { message: `status must be one of: ${VALID_STATUSES.join(', ')}` },
@@ -34,6 +42,20 @@ export async function POST(request: NextRequest) {
 
   try {
     const { date, day } = nowParts()
+
+    // Holidays (from the admin spreadsheet's 'Holiday List') close the day for
+    // everyone, including admins — nothing is expected to be marked.
+    const holiday = await getTodayHoliday()
+    if (holiday) {
+      return NextResponse.json(
+        {
+          holiday: true,
+          holidayName: holiday.name,
+          message: `Today is a holiday (${holiday.name}) — attendance submission is disabled.`,
+        },
+        { status: 403 },
+      )
+    }
 
     const existing = await getAttendanceStatus({ employeeName, employeeEmail, day })
     if (existing.attended) {
@@ -48,6 +70,7 @@ export async function POST(request: NextRequest) {
     }
 
     await markAttendanceStatus({ employeeName, employeeEmail, day, status, time })
+    const store = await storeForEmail(employeeEmail).catch(() => 'employee' as const)
     return NextResponse.json({
       attended: false,
       employee: employeeName,
@@ -55,6 +78,7 @@ export async function POST(request: NextRequest) {
       date,
       status,
       time,
+      store,
       message: `${employeeName || employeeEmail} marked as ${status} for today (${date})`,
     })
   } catch (error) {

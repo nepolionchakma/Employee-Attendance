@@ -33,8 +33,16 @@ export async function POST(request: NextRequest) {
   if (!email || !email.includes('@')) return NextResponse.json({ message: 'Valid email required' }, { status: 400 })
   if (!name) return NextResponse.json({ message: 'Name required' }, { status: 400 })
   try {
-    const { addEmployee } = await import('@/lib/googleSheets')
+    const { addEmployee, ensureEmployeeTabForUser } = await import('@/lib/googleSheets')
     await addEmployee({ name, email, phone, role, address })
+    // Immediately create the attendance column in the member's role sheet
+    // (Bootcamp -> bootcamp sheet, Employee -> employee sheet, Admin -> admin sheet)
+    // so the column exists even before the member's first login.
+    try {
+      await ensureEmployeeTabForUser(name, email)
+    } catch (e: unknown) {
+      console.error('POST /api/admin/members column sync:', e instanceof Error ? e.message : String(e))
+    }
     return NextResponse.json({ ok: true })
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e)
@@ -57,8 +65,15 @@ export async function PUT(request: NextRequest) {
   if (!Number.isInteger(index) || index < 0) return NextResponse.json({ message: 'Valid index required' }, { status: 400 })
   if (!email || !email.includes('@')) return NextResponse.json({ message: 'Valid email required' }, { status: 400 })
   try {
-    const { updateEmployee } = await import('@/lib/googleSheets')
+    const { updateEmployee, ensureEmployeeTabForUser } = await import('@/lib/googleSheets')
     await updateEmployee(index, { name, email, phone, role, address })
+    // Role may have changed — ensure the column exists in the (possibly new) role sheet.
+    // Old columns keep their history; data is never moved automatically.
+    try {
+      await ensureEmployeeTabForUser(name, email)
+    } catch (e: unknown) {
+      console.error('PUT /api/admin/members column sync:', e instanceof Error ? e.message : String(e))
+    }
     return NextResponse.json({ ok: true })
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e)

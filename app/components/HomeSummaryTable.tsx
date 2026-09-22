@@ -37,7 +37,7 @@ export default function HomeSummaryTable({ stats, user }: { stats: StatRow[]; us
         <table className="home-summary-table">
           <thead>
             <tr>
-              <th>Employee</th>
+              <th>Name</th>
               <th>Present</th>
               <th>Absent</th>
             </tr>
@@ -45,14 +45,15 @@ export default function HomeSummaryTable({ stats, user }: { stats: StatRow[]; us
           <tbody>
             {paged.map((row) => {
               const isOwn =
-                (row.email && row.email.toLowerCase() === String(user.email).toLowerCase()) ||
-                row.name.trim().toLowerCase() === String(user.name).trim().toLowerCase()
+                (row.email && row.email.toLowerCase() === String(user.email).toLowerCase())
+
+              // row.name.trim().toLowerCase() === String(user.name).trim().toLowerCase()
               const display = shortName(row.name)
               const needsTitle = String(row.name || '').length > 11
               return (
-                <tr key={row.employee} className={isOwn ? 'home-summary-own' : ''}>
-                  <td className="home-employee-cell" title={row.email}>
-                    <span title={needsTitle ? row.name : undefined}>{row.name}</span>
+                <tr key={row.employee} className={isOwn ? 'home-summary-own' : ''} title={row.email}>
+                  <td className="home-employee-cell">
+                    <span>{row.name}</span>
                     {!row.hasColumn && <span style={{ display: 'inline-block', fontSize: 10, color: '#e67e22', marginLeft: 10 }}>(no column found)</span>}
                     {isOwn && user.isAdmin && <span className="home-you-badge">You</span>}
 

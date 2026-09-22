@@ -18,7 +18,7 @@ interface PendingEdit {
   address: string
 }
 
-const ROLE_OPTIONS = ['Employee', 'Admin']
+const ROLE_OPTIONS = ['Employee', 'Bootcamp', 'Admin']
 
 function SaveIcon() {
   return (

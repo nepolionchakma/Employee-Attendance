@@ -18,13 +18,15 @@ export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => ({}))
   const tab = String(body?.tab || '').trim()
   const action = String(body?.action || '').trim()
+  const store = String(body?.store || 'admin').trim()
 
   try {
-    const { hasGoogleCredentials, recreateAttendanceTab, addEmployeeColumnToTab, refreshAttendanceTab, getEmployees } =
+    const { hasGoogleCredentials, recreateAttendanceTab, addEmployeeColumnToTab, refreshAttendanceTab, pruneForeignColumns, migrateForeignColumns, getEmployees, normalizeStore, normalizeRole } =
       await import('@/lib/googleSheets')
     if (!hasGoogleCredentials()) {
       return NextResponse.json({ message: 'Google Sheets not configured' }, { status: 500 })
     }
+    const resolvedStore = normalizeStore(store)
 
     if (action === 'rebuild') {
       if (!tab) return NextResponse.json({ message: 'tab is required for rebuild' }, { status: 400 })
@@ -35,7 +37,9 @@ export async function POST(request: NextRequest) {
         )
       }
       const directory = await getEmployees({ forceRefresh: true })
-      const result = await recreateAttendanceTab(tab, directory.map((m) => ({ name: m.name, email: m.email })))
+      const roleForStore = resolvedStore === 'bootcamp' ? 'Bootcamp' : resolvedStore === 'employee' ? 'Employee' : 'Admin'
+      const filtered = directory.filter((m: { role?: string }) => normalizeRole(m?.role || '') === roleForStore)
+      const result = await recreateAttendanceTab(tab, filtered.map((m) => ({ name: m.name, email: m.email })), resolvedStore)
       return NextResponse.json({ ok: true, ...result })
     }
 
@@ -43,16 +47,40 @@ export async function POST(request: NextRequest) {
       const name = String(body?.employeeName || '').trim()
       const email = String(body?.employeeEmail || '').trim()
       if (!email) return NextResponse.json({ message: 'employeeEmail is required' }, { status: 400 })
-      await addEmployeeColumnToTab(tab, name, email)
+      await addEmployeeColumnToTab(tab, name, email, resolvedStore)
       return NextResponse.json({ ok: true })
     }
 
     if (action === 'refresh' || !action) {
-      const result = await refreshAttendanceTab(tab || undefined)
+      const result = await refreshAttendanceTab(tab || undefined, resolvedStore)
       return NextResponse.json({ ok: true, ...result })
     }
 
-    return NextResponse.json({ message: 'Unknown action. Use refresh | add-col | rebuild.' }, { status: 400 })
+    if (action === 'prune') {
+      if (!tab) return NextResponse.json({ message: 'tab is required for prune' }, { status: 400 })
+      if (String(body?.confirm || '').trim().toUpperCase() !== 'PRUNE') {
+        return NextResponse.json(
+          { message: 'Set confirm:"PRUNE" to acknowledge foreign-group columns will be deleted from the tab.' },
+          { status: 400 },
+        )
+      }
+      const result = await pruneForeignColumns(tab, resolvedStore)
+      return NextResponse.json({ ok: true, ...result })
+    }
+
+    if (action === 'migrate') {
+      if (!tab) return NextResponse.json({ message: 'tab is required for migrate' }, { status: 400 })
+      if (String(body?.confirm || '').trim().toUpperCase() !== 'MIGRATE') {
+        return NextResponse.json(
+          { message: 'Set confirm:"MIGRATE" to move foreign-group columns into their correct sheets (source columns are deleted after copying).' },
+          { status: 400 },
+        )
+      }
+      const result = await migrateForeignColumns(tab, resolvedStore)
+      return NextResponse.json({ ok: true, ...result })
+    }
+
+    return NextResponse.json({ message: 'Unknown action. Use refresh | add-col | rebuild | prune | migrate.' }, { status: 400 })
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error)
     console.error('POST /api/admin/maintenance failed:', msg)

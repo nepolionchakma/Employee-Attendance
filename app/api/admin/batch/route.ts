@@ -10,13 +10,15 @@ export async function POST(request: NextRequest) {
 
   const body = await request.json().catch(() => ({}))
   const tab = String(body?.tab || '').trim()
+  const store = String(body?.store || 'admin').trim()
 
   try {
-    const { hasGoogleCredentials, batchUpdateRawCells, batchUpdateAttendanceCells } =
+    const { hasGoogleCredentials, batchUpdateRawCells, batchUpdateAttendanceCells, normalizeStore } =
       await import('@/lib/googleSheets')
     if (!hasGoogleCredentials()) {
       return NextResponse.json({ message: 'Google Sheets not configured' }, { status: 500 })
     }
+    const resolvedStore = normalizeStore(store)
 
     // Generic raw batch: { rawUpdates: [{row, col, value}] }
     if (Array.isArray(body?.rawUpdates) && body.rawUpdates.length) {
@@ -28,7 +30,7 @@ export async function POST(request: NextRequest) {
       if (cells.some((c: { row: number; col: number }) => !Number.isInteger(c.row) || !Number.isInteger(c.col) || c.row < 0 || c.col < 0)) {
         return NextResponse.json({ message: 'rawUpdates row/col must be non-negative integers' }, { status: 400 })
       }
-      await batchUpdateRawCells(tab, cells)
+      await batchUpdateRawCells(tab, cells, resolvedStore)
       return NextResponse.json({ ok: true, updated: cells.length })
     }
 
@@ -43,7 +45,7 @@ export async function POST(request: NextRequest) {
       if (updates.some((u: { employeeName: string; day: string }) => !u.employeeName || !u.day)) {
         return NextResponse.json({ message: 'each attendanceUpdate needs employeeName and day' }, { status: 400 })
       }
-      await batchUpdateAttendanceCells(tab, updates)
+      await batchUpdateAttendanceCells(tab, updates, resolvedStore)
       return NextResponse.json({ ok: true, updated: updates.length })
     }
 

@@ -92,6 +92,12 @@ function SheetIcon() {
 }
 
 export default function AdminClient({ user }: { user: AdminClientUser }) {
+  const [store, setStore] = useState('admin')
+  const [stores, setStores] = useState<{ store: string; label: string; configured: boolean }[]>([
+    { store: 'admin', label: 'Admin', configured: true },
+    { store: 'employee', label: 'Employee', configured: true },
+    { store: 'bootcamp', label: 'Bootcamp', configured: true },
+  ])
   const [tab, setTab] = useState('')
   const [tabs, setTabs] = useState<string[]>([])
   const [grid, setGrid] = useState<GridData>(null)
@@ -114,16 +120,18 @@ export default function AdminClient({ user }: { user: AdminClientUser }) {
     setPendingRaw({})
   }, [])
 
-  const fetchData = useCallback(async (tabName: string) => {
+  const fetchData = useCallback(async (storeName: string, tabName: string) => {
     setLoading(true)
     setError('')
     setSuccess('')
     try {
-      const qs = tabName ? `?tab=${encodeURIComponent(tabName)}` : ''
+      const qs = `?store=${encodeURIComponent(storeName)}${tabName ? `&tab=${encodeURIComponent(tabName)}` : ''}`
       const res = await fetch(`/api/admin/data${qs}`)
       const data = await res.json()
       if (!res.ok) throw new Error(data.message || 'Failed to load')
       setTabs(data.tabs || [])
+      if (Array.isArray(data.stores) && data.stores.length) setStores(data.stores)
+      if (data.store) setStore(data.store)
       setGrid(data)
       if (!tabName) setTab(data.tab)
       clearPending()
@@ -136,12 +144,17 @@ export default function AdminClient({ user }: { user: AdminClientUser }) {
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    void fetchData('')
+    void fetchData('admin', '')
   }, [fetchData])
+
+  const handleStoreChange = (s: string) => {
+    setStore(s)
+    fetchData(s, '')
+  }
 
   const handleTabChange = (t: string) => {
     setTab(t)
-    fetchData(t)
+    fetchData(store, t)
   }
 
   const handleAttendanceEdit = (employeeName: string, date: string, field: string, value: string) => {
@@ -200,24 +213,24 @@ export default function AdminClient({ user }: { user: AdminClientUser }) {
         const res = await fetch('/api/admin/batch', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ tab, attendanceUpdates: updates }),
+          body: JSON.stringify({ tab, store, attendanceUpdates: updates }),
         })
         const data = await res.json().catch(() => ({}))
         if (!res.ok) throw new Error(data.message || 'Save failed')
-        setSuccess(`Saved ${updates.length} change${updates.length > 1 ? 's' : ''} to ${tab}`)
+        setSuccess(`Saved ${updates.length} change${updates.length > 1 ? 's' : ''} to ${store} / ${tab}`)
       } else if (grid?.kind === 'raw') {
         const updates = Object.values(pendingRaw)
         const res = await fetch('/api/admin/batch', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ tab, rawUpdates: updates }),
+          body: JSON.stringify({ tab, store, rawUpdates: updates }),
         })
         const data = await res.json().catch(() => ({}))
         if (!res.ok) throw new Error(data.message || 'Save failed')
-        setSuccess(`Saved ${updates.length} cell${updates.length > 1 ? 's' : ''} to ${tab}`)
+        setSuccess(`Saved ${updates.length} cell${updates.length > 1 ? 's' : ''} to ${store} / ${tab}`)
       }
       clearPending()
-      await fetchData(tab)
+      await fetchData(store, tab)
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -229,7 +242,42 @@ export default function AdminClient({ user }: { user: AdminClientUser }) {
     setError('')
     setSuccess('')
     clearPending()
-    await fetchData(tab)
+    await fetchData(store, tab)
+  }
+
+  const handlePrune = async () => {
+    if (saving || loading) return
+    const ok = window.confirm(
+      `Move other groups' data out of ${store} / ${tab} into their correct sheets?\n\nForeign columns are COPIED to the right sheet first, then deleted here. Missing ${store} members will be added.`,
+    )
+    if (!ok) return
+    setSaving(true)
+    setError('')
+    setSuccess('')
+    try {
+      const res = await fetch('/api/admin/maintenance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tab, store, action: 'migrate', confirm: 'MIGRATE' }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.message || 'Migrate failed')
+      const moved = Array.isArray(data.moved) ? data.moved.length : 0
+      const conflicts = Array.isArray(data.conflicts) ? data.conflicts.length : 0
+      setSuccess(`Migrated ${store} / ${tab}: moved ${moved} member(s), conflicts ${conflicts}, added ${data.addedCount ?? 0}`)
+      if (conflicts > 0) {
+        setSuccess(
+          `Migrated ${store} / ${tab}: moved ${moved}, added ${data.addedCount ?? 0}, ${conflicts} conflict(s) kept live values — check console.`,
+        )
+        console.warn('Migrate conflicts:', data.conflicts)
+      }
+      clearPending()
+      await fetchData(store, tab)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setSaving(false)
+    }
   }
 
   if (loading && !grid) {
@@ -256,6 +304,23 @@ export default function AdminClient({ user }: { user: AdminClientUser }) {
       <div className="admin-toolbar">
         <div className="admin-toolbar-left">
           <span className="admin-toolbar-label">
+            <SheetIcon /> Spreadsheet
+          </span>
+          <select
+            id="store"
+            className="attendance-select admin-sheet-select"
+            value={store}
+            onChange={(e) => handleStoreChange(e.target.value)}
+            disabled={saving || loading}
+            aria-label="Spreadsheet"
+          >
+            {stores.map((s) => (
+              <option key={s.store} value={s.store}>
+                {s.label}{s.configured ? '' : ' (not configured)'}
+              </option>
+            ))}
+          </select>
+          <span className="admin-toolbar-label">
             <SheetIcon /> Sheet
           </span>
           <select
@@ -271,8 +336,16 @@ export default function AdminClient({ user }: { user: AdminClientUser }) {
               </option>
             ))}
           </select>
-          <button className="btn btn-icon admin-refresh-btn" onClick={() => fetchData(tab)} disabled={loading || saving} title="Reload sheet">
+          <button className="btn btn-icon admin-refresh-btn" onClick={() => fetchData(store, tab)} disabled={loading || saving} title="Reload sheet">
             <RefreshIcon /> {loading ? 'Refreshing…' : 'Refresh'}
+          </button>
+          <button
+            className="btn btn-icon admin-discard-btn"
+            onClick={handlePrune}
+            disabled={loading || saving || !tab}
+            title="Delete other groups' columns from this tab and add missing members of this group"
+          >
+            <DiscardIcon /> Prune
           </button>
         </div>
 
