@@ -29,6 +29,7 @@ export async function GET(request: NextRequest) {
   const {
     hasGoogleCredentials,
     getAdminGrid,
+    getHolidaysInMonth,
     listMonthTabs,
     parseHeaderEmail,
     parseHeaderName,
@@ -56,6 +57,8 @@ export async function GET(request: NextRequest) {
     firstWeekday: new Date(year, month - 1, 1).getDay(),
     today: { year: now.year, month: now.month, day: now.day },
     days: {} as Record<string, HistoryDay>,
+    // Day number -> holiday name, from the admin spreadsheet's 'Holiday List'.
+    holidays: (await getHolidaysInMonth(year, month).catch(() => ({}))) as Record<string, string>,
   }
 
   // Dev fallback: without Google credentials the in-memory store only knows the

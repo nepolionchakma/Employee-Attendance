@@ -18,6 +18,8 @@ interface HistoryPayload {
   tabExists: boolean
   hasColumn: boolean
   days: Record<string, HistoryDay>
+  /** Day number -> holiday name, from the admin spreadsheet's Holiday List. */
+  holidays: Record<string, string>
 }
 
 type DayKind = 'present' | 'absent' | 'off' | 'none'
@@ -272,13 +274,16 @@ export default function AttendanceHistory() {
               {cells.map((day, i) => {
                 if (day === null) return <span key={`blank-${i}`} className="cal-day empty" aria-hidden="true" />
                 const entry = active?.days?.[String(day)]
+                const holidayName = active?.holidays?.[String(day)]
                 const friday = isFriday(day)
-                const kind = entry ? kindOf(entry.status) : friday ? 'off' : 'none'
+                const kind = entry ? kindOf(entry.status) : holidayName !== undefined || friday ? 'off' : 'none'
                 const label = entry
                   ? `${entry.status}${entry.time ? ` · ${entry.time}` : ''}`
-                  : friday
-                    ? 'Holiday'
-                    : 'No record'
+                  : holidayName !== undefined
+                    ? `Holiday${holidayName ? ` · ${holidayName}` : ''}`
+                    : friday
+                      ? 'Holiday'
+                      : 'No record'
                 return (
                   <span
                     key={day}

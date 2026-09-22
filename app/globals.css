@@ -239,6 +239,10 @@ a {
   color: var(--text);
 }
 
+.attendance-status.holiday {
+  color: #b45309;
+}
+
 .admin-page {
   max-width: 1300px;
 }
@@ -1095,7 +1099,7 @@ a {
   max-width: 400px;
   max-height: 90svh;
   overflow-y: auto;
-  padding: 18px;
+  padding: 10px;
   border: 1px solid var(--border);
   border-radius: 14px;
   background: var(--bg);

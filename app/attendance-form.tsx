@@ -7,14 +7,16 @@ import { shortName } from '@/lib/utils'
 interface AttendanceFormProps {
   employeeName: string
   employeeEmail: string
+  /** Member role from the Members tab of the admin sheet (Admin / Employee / Bootcamp). */
+  role?: string
 }
 
 interface CheckState {
-  kind: 'already' | 'ready' | 'success' | 'error'
+  kind: 'already' | 'ready' | 'success' | 'error' | 'holiday'
   message: string
 }
 
-export default function AttendanceForm({ employeeName, employeeEmail }: AttendanceFormProps) {
+export default function AttendanceForm({ employeeName, employeeEmail, role }: AttendanceFormProps) {
   const [status, setStatus] = useState('On-site')
   const [check, setCheck] = useState<CheckState | null>(null)
   const [submitting, setSubmitting] = useState(false)
@@ -32,12 +34,14 @@ export default function AttendanceForm({ employeeName, employeeEmail }: Attendan
       .then((data) => {
         if (cancelled) return
         setCheck(
-          data?.attended
-            ? {
-              kind: 'already',
-              message: `${employeeName} already attended today (${data.status})`,
-            }
-            : { kind: 'ready', message: 'Not marked yet — you can submit.' },
+          data?.holiday
+            ? { kind: 'holiday', message: data.message || 'Today is a holiday — attendance is not needed.' }
+            : data?.attended
+              ? {
+                kind: 'already',
+                message: `${employeeName} ${data.status === 'Holiday' ? `- today is marked as a ${data.status}.` : `already attended today (${data.status})`} `,
+              }
+              : { kind: 'ready', message: 'Not marked yet — you can submit.' },
         )
       })
       .catch(() => {
@@ -68,7 +72,9 @@ export default function AttendanceForm({ employeeName, employeeEmail }: Attendan
       })
       const data = await res.json()
 
-      if (res.status === 409) {
+      if (data?.holiday) {
+        setCheck({ kind: 'holiday', message: data.message })
+      } else if (res.status === 409) {
         setCheck({ kind: 'already', message: data.message })
       } else if (res.ok) {
         setCheck({ kind: 'success', message: data.message })
@@ -87,7 +93,9 @@ export default function AttendanceForm({ employeeName, employeeEmail }: Attendan
 
   // Locked once attendance is recorded — either detected on load (already)
   // or right after a successful submit (success) — until the page is reloaded.
-  const attended = check?.kind === 'already' || check?.kind === 'success'
+  // Holidays lock it too: nothing is expected to be marked that day.
+  const attended = check?.kind === 'already' || check?.kind === 'success' || check?.kind === 'holiday'
+  const onHoliday = check?.kind === 'holiday'
 
   return (
     <div className="page">
@@ -96,7 +104,7 @@ export default function AttendanceForm({ employeeName, employeeEmail }: Attendan
 
       <div className="card">
         <form onSubmit={handleSubmit} className="attendance-form">
-          <label htmlFor="employee">Employee</label>
+          <label htmlFor="employee">{role || 'Employee'}</label>
           <p id="employee" className="attendance-employee" title={String(employeeName || '').length > 11 ? employeeName : undefined}>
             {employeeName}
             {employeeEmail && <span style={{ display: 'block', fontSize: 12, fontWeight: 400, color: 'var(--text)', marginTop: 2 }}>{employeeEmail}</span>}
@@ -124,7 +132,13 @@ export default function AttendanceForm({ employeeName, employeeEmail }: Attendan
             className="btn primary"
             disabled={(!employeeName && !employeeEmail) || submitting || attended}
           >
-            {submitting ? 'Submitting…' : attended ? 'Attendance submitted' : 'Submit attendance'}
+            {submitting
+              ? 'Submitting…'
+              : onHoliday
+                ? 'Holiday — submission disabled'
+                : attended
+                  ? 'Attendance submitted'
+                  : 'Submit attendance'}
           </button>
         </form>
 

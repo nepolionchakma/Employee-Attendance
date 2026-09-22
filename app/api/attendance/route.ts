@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAttendanceStatus, markAttendanceStatus } from '@/lib/storage'
-import { nowParts, adminCanSubmitAttendance, storeForEmail } from '@/lib/googleSheets'
+import { nowParts, adminCanSubmitAttendance, storeForEmail, getTodayHoliday } from '@/lib/googleSheets'
 import { getSessionUser } from '@/lib/auth'
 
 export const runtime = 'nodejs'
@@ -42,6 +42,20 @@ export async function POST(request: NextRequest) {
 
   try {
     const { date, day } = nowParts()
+
+    // Holidays (from the admin spreadsheet's 'Holiday List') close the day for
+    // everyone, including admins — nothing is expected to be marked.
+    const holiday = await getTodayHoliday()
+    if (holiday) {
+      return NextResponse.json(
+        {
+          holiday: true,
+          holidayName: holiday.name,
+          message: `Today is a holiday (${holiday.name}) — attendance submission is disabled.`,
+        },
+        { status: 403 },
+      )
+    }
 
     const existing = await getAttendanceStatus({ employeeName, employeeEmail, day })
     if (existing.attended) {

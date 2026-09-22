@@ -32,6 +32,22 @@ After login, you will see:
 - Share **all three** spreadsheets with the service account email as **Editor**.
 - `ADMIN_CAN_SUBMIT_ATTENDANCE=no` blocks admins from submitting (manage-only). Default `yes` (useful for testing).
 
+### Holiday List (admin spreadsheet)
+
+The admin spreadsheet has a **Holiday List** tab (rename with `HOLIDAYS_SHEET_TAB` if needed):
+
+| Date | Name |
+| --- | --- |
+| 09-20-2026 | ABC |
+| 09-21-2026 | DD |
+
+- Column A = date (a real date cell, or a typed date), column B = holiday name.
+- Every listed date is written as **Holiday** in the matching month tab, for the whole month at once — including today and future dates. A listed holiday replaces whatever was recorded for that date.
+- On a holiday **nobody can submit attendance** (members and admins), and the homepage button shows `Holiday — submission disabled`. The API rejects the submit with `403` if a page was already open.
+- Holiday rows — and every Friday — are shaded automatically in the sheet with Google Sheets palette **light yellow 3** (`#FFF2CC`), so they stand out from normal days.
+- The holiday tab is hidden from the Manage Attendance tab picker so it is never mistaken for a month.
+- Verify the parsing at any time with: `node --env-file=.env scripts/verify-holidays.mjs` (read-only).
+
 ## Admin Tasks
 
 ### 1. Configure the attendance sheet

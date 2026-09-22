@@ -442,6 +442,153 @@ export async function deleteEmployee(rowIndex: number) {
   return true
 }
 
+/* ---- Holidays (admin spreadsheet 'Holiday List' tab) ----
+ * Column A holds the date (a real date cell, or a typed date string) and
+ * column B an optional holiday name. Those dates are marked 'Holiday' in every
+ * month tab and block attendance submission for everyone.
+ */
+const HOLIDAYS_SHEET = (process.env.HOLIDAYS_SHEET_TAB || 'Holiday List').trim() || 'Holiday List'
+
+const MONTH_NAMES = [
+  'january', 'february', 'march', 'april', 'may', 'june',
+  'july', 'august', 'september', 'october', 'november', 'december',
+]
+
+let holidaysCache: Map<string, string> | null = null
+let holidaysCacheAt = 0
+const HOLIDAYS_CACHE_TTL = 60 * 1000
+
+/** Is this tab the holiday list (never a month tab)? */
+export function isHolidaysTab(title: string) {
+  return String(title || '').trim().toLowerCase() === HOLIDAYS_SHEET.toLowerCase()
+}
+
+/** 'YYYY-MM-DD' key used by the holiday map. */
+export function dateKey(year: number, month: number, day: number): string {
+  return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+}
+
+function monthFromName(name: string): number {
+  const key = String(name || '').trim().toLowerCase()
+  if (!key) return -1
+  return MONTH_NAMES.findIndex((full) => full === key || full.startsWith(key.slice(0, 3)))
+}
+
+/**
+ * Google Sheets / Excel serial date → calendar day. Serials below 61 are
+ * rejected because that range is where Excel's fake 1900 leap day lives (and a
+ * plain day-of-month would otherwise look like a serial).
+ */
+export function serialToYmd(serial: number): { year: number; month: number; day: number } | null {
+  if (!Number.isFinite(serial) || serial < 61 || serial > 3000000) return null
+  const d = new Date(Date.UTC(1899, 11, 30) + Math.round(serial) * 24 * 60 * 60 * 1000)
+  return { year: d.getUTCFullYear(), month: d.getUTCMonth() + 1, day: d.getUTCDate() }
+}
+
+/** Parses one holiday date cell (serial number or typed date string). */
+function parseHolidayDate(value: unknown): { year: number; month: number; day: number } | null {
+  if (typeof value === 'number') return serialToYmd(value)
+  const raw = String(value ?? '').trim()
+  if (!raw) return null
+
+  let m = raw.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/) // 2026-09-20
+  if (m) return { year: Number(m[1]), month: Number(m[2]), day: Number(m[3]) }
+
+  m = raw.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})$/) // 09-20-2026 / 20-09-2026
+  if (m) {
+    const first = Number(m[1])
+    const second = Number(m[2])
+    // The sheet writes dates month-first, so only swap when the first number
+    // can't be a month.
+    const month = first > 12 ? second : first
+    const day = first > 12 ? first : second
+    return { year: Number(m[3]), month, day }
+  }
+
+  m = raw.match(/^(\d{1,2})\s+([A-Za-z]+),?\s+(\d{4})$/) // 20 September 2026
+  if (m) {
+    const mi = monthFromName(m[2])
+    return mi === -1 ? null : { year: Number(m[3]), month: mi + 1, day: Number(m[1]) }
+  }
+
+  m = raw.match(/^([A-Za-z]+)\s+(\d{1,2}),?\s+(\d{4})$/) // September 20, 2026
+  if (m) {
+    const mi = monthFromName(m[1])
+    return mi === -1 ? null : { year: Number(m[3]), month: mi + 1, day: Number(m[2]) }
+  }
+
+  return null
+}
+
+/**
+ * Holiday dates (admin spreadsheet) as a map of 'YYYY-MM-DD' -> holiday name.
+ * Cached briefly so page loads don't re-read the tab every time.
+ */
+export async function getHolidays({ forceRefresh = false } = {}): Promise<Map<string, string>> {
+  if (!hasGoogleCredentials() || !ADMIN_SPREADSHEET_ID) return new Map()
+  const now = Date.now()
+  if (!forceRefresh && holidaysCache && now - holidaysCacheAt < HOLIDAYS_CACHE_TTL) return holidaysCache
+
+  try {
+    const sheets = await sheetsClient()
+    const tabs: string[] = await listTabs(sheets)
+    const tab = tabs.find((t) => isHolidaysTab(t))
+    const map = new Map<string, string>()
+    if (tab) {
+      const res = await sheets.spreadsheets.values.get({
+        spreadsheetId: ADMIN_SPREADSHEET_ID,
+        range: `${tab}!A2:B400`,
+        valueRenderOption: 'UNFORMATTED_VALUE',
+      })
+      for (const row of res.data.values || []) {
+        const ymd = parseHolidayDate(row?.[0])
+        if (!ymd) continue
+        map.set(dateKey(ymd.year, ymd.month, ymd.day), String(row?.[1] ?? '').trim())
+      }
+    } else {
+      console.warn(`Holiday tab "${HOLIDAYS_SHEET}" not found — no holidays applied.`)
+    }
+    holidaysCache = map
+    holidaysCacheAt = now
+    return map
+  } catch (e) {
+    console.warn('Holiday list read failed:', (e as Error).message)
+    return holidaysCache || new Map()
+  }
+}
+
+export function clearHolidaysCache() {
+  holidaysCache = null
+  holidaysCacheAt = 0
+}
+
+/** Today's holiday (Asia/Dhaka), when today is on the holiday list. */
+export async function getTodayHoliday(): Promise<{ date: string; name: string } | null> {
+  const { year, month, day } = nowParts()
+  const key = dateKey(year, month, day)
+  const holidays = await getHolidays()
+  if (!holidays.has(key)) return null
+  return { date: key, name: holidays.get(key) || 'Holiday' }
+}
+
+/** Holiday names for one month, keyed by day number (for the history calendar). */
+export async function getHolidaysInMonth(year: number, month: number): Promise<Record<string, string>> {
+  const prefix = `${year}-${String(month).padStart(2, '0')}-`
+  const out: Record<string, string> = {}
+  for (const [key, name] of await getHolidays()) {
+    if (key.startsWith(prefix)) out[String(Number(key.slice(8, 10)))] = name
+  }
+  return out
+}
+
+/** 'September 2026' (as created by monthLabel) → { year, month }. */
+function parseMonthTabTitle(title: string): { year: number; month: number } | null {
+  const m = String(title || '').trim().match(/^([A-Za-z]+)\s+(\d{4})$/)
+  if (!m) return null
+  const mi = monthFromName(m[1])
+  return mi === -1 ? null : { year: Number(m[2]), month: mi + 1 }
+}
+
 export function nowParts() {
   const fmt = (opts: Intl.DateTimeFormatOptions) =>
     new Intl.DateTimeFormat('en-GB', { timeZone: TZ, ...opts }).format(new Date())
@@ -933,6 +1080,13 @@ async function markAbsentForPastDays(sheets: any, tab: string, rows: any[], stor
     }
   }
 
+  // Holidays come from the admin spreadsheet's 'Holiday List' tab, matched
+  // against the month this tab holds. A tab whose name isn't a month label
+  // (e.g. a pinned ATTENDANCE_SHEET_TAB) can't be matched, so it only gets the
+  // Friday rule.
+  const tabMonth = parseMonthTabTitle(tab)
+  const holidays = tabMonth ? await getHolidays() : new Map<string, string>()
+
   // Advance one full employee block per iteration (2 cols for Presence+Time,
   // 3 for legacy) so a filled pair is never re-read as an empty Presence cell —
   // stepping by 1 used to misalign Fridays after the first pass.
@@ -940,33 +1094,42 @@ async function markAbsentForPastDays(sheets: any, tab: string, rows: any[], stor
   for (let i = headerRow + 1; i < rows.length; i++) {
     const day = Number(rows[i][0])
     if (!Number.isInteger(day)) break
-    if (day >= today) continue
     const dayName = String(rows[i][1] || '').trim()
-    const isFriday = dayName === 'Fri'
+    const listed = tabMonth ? holidays.get(dateKey(tabMonth.year, tabMonth.month, day)) : undefined
+
+    if (dayName === 'Fri' || listed !== undefined) {
+      // A listed holiday is marked for the whole month up front; future Fridays
+      // are left alone until they arrive.
+      if (listed === undefined && day >= today) continue
+      for (let c = firstEmployeeCol; c < lastEmployeeCol; c += fillStep) {
+        // A listed holiday is authoritative: it replaces whatever was recorded
+        // for that date. A plain Friday only fills cells that are still empty.
+        if (listed === undefined && String(rows[i][c] ?? '').trim() !== '') continue
+        rows[i][c] = 'Holiday'
+        if (isLegacy3) {
+          rows[i][c + 1] = ''
+          rows[i][c + 2] = ''
+        } else if (isAtt) {
+          rows[i][c + 1] = ''
+        }
+      }
+      continue
+    }
+
+    if (day >= today) continue
     for (let c = firstEmployeeCol; c < lastEmployeeCol; c += fillStep) {
       if (String(rows[i][c] ?? '').trim() === '') {
         if (isLegacy3) {
           // Legacy 3-col: merge time into presence
-          if (isFriday) {
-            rows[i][c] = 'Holiday'
-            rows[i][c + 1] = ''
-            rows[i][c + 2] = ''
-          } else {
-            rows[i][c] = 'Absent'
-            rows[i][c + 1] = AUTO_ABSENT_TIME
-            rows[i][c + 2] = ''
-          }
+          rows[i][c] = 'Absent'
+          rows[i][c + 1] = AUTO_ABSENT_TIME
+          rows[i][c + 2] = ''
         } else if (isAtt) {
           // New 2-col: presence + time
-          if (isFriday) {
-            rows[i][c] = 'Holiday'
-            rows[i][c + 1] = ''
-          } else {
-            rows[i][c] = 'Absent'
-            rows[i][c + 1] = AUTO_ABSENT_TIME
-          }
+          rows[i][c] = 'Absent'
+          rows[i][c + 1] = AUTO_ABSENT_TIME
         } else {
-          rows[i][c] = isFriday ? 'Holiday' : 'Absent'
+          rows[i][c] = 'Absent'
         }
       }
     }
@@ -994,7 +1157,7 @@ async function markAbsentForPastDays(sheets: any, tab: string, rows: any[], stor
       requestBody: { values: dataRows },
     })
   }
-  console.log(`Marked "Absent" for past days in "${tab}"`)
+  console.log(`Marked holidays/Absent for past days in "${tab}"`)
 }
 
 async function updateAbsentSummary(sheets: any, tab: string, rows: any[], store?: unknown) {
@@ -1081,7 +1244,8 @@ const EMP_COLORS = [
   { red: 0.816, green: 0.878, blue: 0.89 },
 ]
 const PINK_COLOR = { red: 0.918, green: 0.82, blue: 0.863 }
-const FRIDAY_COLOR = { red: 1.0, green: 0.92, blue: 0.8 }
+/** Google Sheets palette "light yellow 3" (#FFF2CC) — holidays and Fridays. */
+const HOLIDAY_YELLOW = { red: 1, green: 0.949, blue: 0.8 }
 const SOLID_MEDIUM = { style: 'SOLID_MEDIUM' }
 
 async function applyEmployeeFormatting(sheets: any, tab: string, store?: unknown) {
@@ -1165,11 +1329,18 @@ async function applyEmployeeFormatting(sheets: any, tab: string, store?: unknown
   }
   await boldCells(sheets, tab, boldRow1, normalizedStore)
 
+  // Holidays are shaded like Fridays: every Friday plus every date on the
+  // admin spreadsheet's 'Holiday List' gets the light yellow 3 background.
+  const tabMonth = parseMonthTabTitle(tab)
+  const holidays = tabMonth ? await getHolidays() : new Map<string, string>()
+  const totalCols = 2 + numEmps * COLS_PER_EMPLOYEE
+
   for (let r = headerRow + 1; r <= lastDayRow; r++) {
     const dayName = String(rows[r][1] || '').trim()
-    if (dayName === 'Fri') {
-      const totalCols = 2 + numEmps * COLS_PER_EMPLOYEE
-      requests.push(bgCells(r, 0, totalCols, FRIDAY_COLOR))
+    const day = Number(rows[r][0])
+    const listed = tabMonth && Number.isInteger(day) ? holidays.get(dateKey(tabMonth.year, tabMonth.month, day)) : undefined
+    if (dayName === 'Fri' || listed !== undefined) {
+      requests.push(bgCells(r, 0, totalCols, HOLIDAY_YELLOW))
     }
     for (let i = 0; i < numEmps; i++) {
       const sc = 2 + i * COLS_PER_EMPLOYEE
@@ -1189,7 +1360,6 @@ async function applyEmployeeFormatting(sheets: any, tab: string, store?: unknown
   }
 
   // Set wrapStrategy CLIP on all data cells to prevent overflow
-  const totalCols = 2 + numEmps * COLS_PER_EMPLOYEE
   requests.push({
     repeatCell: {
       range: { sheetId, startRowIndex: 0, endRowIndex: lastDayRow + 2, startColumnIndex: 0, endColumnIndex: totalCols },
@@ -1208,6 +1378,8 @@ async function applyEmployeeFormatting(sheets: any, tab: string, store?: unknown
 }
 
 let migratedTabs = new Set<string>()
+// Tabs already repainted in this server process (see loadGrid).
+let paintedTabs = new Set<string>()
 
 async function loadGrid(sheets: any, tab: string, store?: unknown) {
   const normalizedStore = normalizeStore(store ?? 'admin')
@@ -1234,6 +1406,20 @@ async function loadGrid(sheets: any, tab: string, store?: unknown) {
   }
   await markAbsentForPastDays(sheets, tab, rows, normalizedStore)
   await updateAbsentSummary(sheets, tab, rows, normalizedStore)
+
+  // The holiday/Friday shading only lives in the tab's formatting, which is
+  // otherwise refreshed just when columns change. Repaint each tab once per
+  // process so existing tabs pick up the current colours (and newly listed
+  // holidays) without paying for a full formatting pass on every page load.
+  const paintKey = `${sid}::${tab}`
+  if (!paintedTabs.has(paintKey)) {
+    paintedTabs.add(paintKey)
+    try {
+      await applyEmployeeFormatting(sheets, tab, normalizedStore)
+    } catch (e) {
+      console.warn(`Holiday shading skipped for "${tab}":`, (e as Error).message)
+    }
+  }
   return rows
 }
 
@@ -1350,7 +1536,10 @@ export { parseHeaderEmail, parseHeaderName, formatEmployeeHeader }
 export async function listMonthTabs(store?: unknown) {
   const normalizedStore = normalizeStore(store ?? 'admin')
   const sheets = await sheetsClient(spreadsheetIdForStore(normalizedStore))
-  return listTabs(sheets, spreadsheetIdForStore(normalizedStore))
+  const tabs: string[] = await listTabs(sheets, spreadsheetIdForStore(normalizedStore))
+  // The holiday list lives in the admin spreadsheet but is not an attendance
+  // month — keep it out of the admin tab pickers.
+  return tabs.filter((t) => !isHolidaysTab(t))
 }
 
 export async function getRawSheet(tab: string, store?: unknown) {

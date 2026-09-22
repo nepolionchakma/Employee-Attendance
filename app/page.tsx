@@ -33,9 +33,13 @@ export default async function HomePage() {
   if (!user) redirect('/login')
 
   let summary: { monthLabel: string; stats: SummaryStat[] } | null = null
+  // The attendance form labels the user by their Members-directory role. Fall back
+  // to the session flag when the directory can't be read (no creds / offline).
+  let memberRole: 'Admin' | 'Employee' | 'Bootcamp' = user.isAdmin ? 'Admin' : 'Employee'
   try {
-    const { hasGoogleCredentials, getAdminGrid, getEmployees, parseHeaderEmail, parseHeaderName, storeForEmail } = await import('@/lib/googleSheets')
+    const { hasGoogleCredentials, getAdminGrid, getEmployees, getRoleForEmail, parseHeaderEmail, parseHeaderName, storeForEmail } = await import('@/lib/googleSheets')
     if (hasGoogleCredentials()) {
+      memberRole = (await getRoleForEmail(String(user.email || ''))) || memberRole
       // Each role reads its own spreadsheet: Bootcamp -> bootcamp sheet, Employee -> employee sheet.
       const userStore = await storeForEmail(String(user.email || '')).catch(() => 'employee' as const)
       const [grid, directory] = await Promise.all([getAdminGrid('', userStore), getEmployees()])
@@ -115,7 +119,7 @@ export default async function HomePage() {
           </div>
         )}
 
-        <AttendanceForm employeeName={user.name} employeeEmail={user.email} />
+        <AttendanceForm employeeName={user.name} employeeEmail={user.email} role={memberRole} />
       </div>
     </>
   )

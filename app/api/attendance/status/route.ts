@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAttendanceStatus } from '@/lib/storage'
-import { nowParts } from '@/lib/googleSheets'
+import { nowParts, getTodayHoliday } from '@/lib/googleSheets'
 import { getSessionUser } from '@/lib/auth'
 
 export const runtime = 'nodejs'
@@ -24,8 +24,22 @@ export async function GET(request: NextRequest) {
 
   try {
     const { date, day } = nowParts()
+    // A holiday (from the admin spreadsheet's 'Holiday List') closes the day:
+    // the form disables the submit button instead of checking for a record.
+    const holiday = await getTodayHoliday()
+    if (holiday) {
+      return NextResponse.json({
+        employee: name,
+        email,
+        date,
+        attended: false,
+        holiday: true,
+        holidayName: holiday.name,
+        message: `Today is a holiday (${holiday.name}) — attendance is not needed.`,
+      })
+    }
     const result = await getAttendanceStatus({ employeeName: name, employeeEmail: email, day })
-    return NextResponse.json({ employee: name, email, date, ...result })
+    return NextResponse.json({ employee: name, email, date, holiday: false, ...result })
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error)
     console.error('GET /api/attendance/status failed:', msg)
