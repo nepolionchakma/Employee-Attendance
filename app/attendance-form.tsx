@@ -56,6 +56,11 @@ export default function AttendanceForm({ employeeName, employeeEmail, role }: At
   const [status, setStatus] = useState('On-site')
   const [check, setCheck] = useState<CheckState | null>(null)
   const [submitting, setSubmitting] = useState(false)
+  // The status check is in flight until the first response lands. The submit
+  // button stays locked and labelled 'Checking…' meanwhile — otherwise it looks
+  // ready for a moment and an already-recorded attendance only surfaces after
+  // the user has clicked.
+  const [statusResolved, setStatusResolved] = useState(false)
   // Road + district captured with the submitted attendance, shown as feedback.
   const [capturedLocation, setCapturedLocation] = useState('')
   const router = useRouter()
@@ -63,11 +68,14 @@ export default function AttendanceForm({ employeeName, employeeEmail, role }: At
   useEffect(() => {
     if (!employeeName && !employeeEmail) return
     let cancelled = false
+    // Never leave the form locked on 'Checking…' if the status call hangs.
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 15000)
 
     const qs = employeeEmail
       ? `email=${encodeURIComponent(employeeEmail)}`
       : `employee=${encodeURIComponent(employeeName)}`
-    fetch(`/api/attendance/status?${qs}`)
+    fetch(`/api/attendance/status?${qs}`, { signal: controller.signal })
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
         if (cancelled) return
@@ -82,11 +90,22 @@ export default function AttendanceForm({ employeeName, employeeEmail, role }: At
               : { kind: 'ready', message: 'Not marked yet — you can submit.' },
         )
       })
-      .catch(() => {
-        if (!cancelled) setCheck({ kind: 'error', message: 'Could not check attendance status.' })
+      .catch((err: unknown) => {
+        if (cancelled) return
+        setCheck(
+          err instanceof DOMException && err.name === 'AbortError'
+            ? { kind: 'ready', message: 'Status check is slow — you can still submit.' }
+            : { kind: 'error', message: 'Could not check attendance status.' },
+        )
+      })
+      .finally(() => {
+        clearTimeout(timeout)
+        if (!cancelled) setStatusResolved(true)
       })
     return () => {
       cancelled = true
+      clearTimeout(timeout)
+      controller.abort()
     }
   }, [employeeName, employeeEmail])
 
@@ -137,6 +156,8 @@ export default function AttendanceForm({ employeeName, employeeEmail, role }: At
   // Holidays lock it too: nothing is expected to be marked that day.
   const attended = check?.kind === 'already' || check?.kind === 'success' || check?.kind === 'holiday'
   const onHoliday = check?.kind === 'holiday'
+  // Derived (not stored) so the no-employee case never gets stuck on loading.
+  const checking = !statusResolved && Boolean(employeeName || employeeEmail)
 
   return (
     <div className="page">
@@ -161,7 +182,7 @@ export default function AttendanceForm({ employeeName, employeeEmail, role }: At
                   value={option}
                   checked={status === option}
                   onChange={() => setStatus(option)}
-                  disabled={attended}
+                  disabled={attended || checking}
                 />
                 {option}
               </label>
@@ -171,19 +192,33 @@ export default function AttendanceForm({ employeeName, employeeEmail, role }: At
           <button
             type="submit"
             className="btn primary"
-            disabled={(!employeeName && !employeeEmail) || submitting || attended}
+            disabled={(!employeeName && !employeeEmail) || submitting || checking || attended}
           >
-            {submitting
-              ? 'Submitting…'
-              : onHoliday
-                ? 'Holiday — submission disabled'
-                : attended
-                  ? 'Attendance submitted'
-                  : 'Submit attendance'}
+            {submitting ? (
+              <>
+                <span className="attendance-spinner" aria-hidden="true" /> Submitting…
+              </>
+            ) : checking ? (
+              <>
+                <span className="attendance-spinner" aria-hidden="true" /> Checking…
+              </>
+            ) : onHoliday ? (
+              'Holiday — submission disabled'
+            ) : attended ? (
+              'Attendance submitted'
+            ) : (
+              'Submit attendance'
+            )}
           </button>
         </form>
 
-        {check && <p className={`attendance-status ${check.kind}`}>{check.message}</p>}
+        {checking && (
+          <p className="attendance-status checking" role="status" aria-live="polite">
+            <span className="attendance-spinner" aria-hidden="true" />
+            Checking today&apos;s attendance…
+          </p>
+        )}
+        {!checking && check && <p className={`attendance-status ${check.kind}`}>{check.message}</p>}
         {capturedLocation && <p className="attendance-location">Location recorded: {capturedLocation}</p>}
       </div>
     </div>

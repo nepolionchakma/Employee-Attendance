@@ -249,6 +249,27 @@ a {
   color: var(--text);
 }
 
+/* Busy indicator for the attendance check/submit — works on the button (light
+   text) and in the status line, since it inherits currentColor. */
+.attendance-spinner {
+  display: inline-block;
+  width: 13px;
+  height: 13px;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  opacity: 0.75;
+  vertical-align: -2px;
+  margin-right: 6px;
+  animation: spin 0.8s linear infinite;
+}
+
+.attendance-status.checking {
+  display: flex;
+  align-items: center;
+  color: var(--text);
+}
+
 .admin-page {
   max-width: 1300px;
 }
