@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import { getSessionUser } from '@/lib/auth'
 import AttendanceForm from './attendance-form'
+import LocationGate from './components/LocationGate'
 import Navbar from './components/Navbar'
 import HomeSummaryTable from './components/HomeSummaryTable'
 import AttendanceHistory from './components/AttendanceHistory'
@@ -8,12 +9,12 @@ import AttendanceHistory from './components/AttendanceHistory'
 export const metadata = {
   title: 'Datafluent BD — Online Daily Attendance Management',
   description:
-    'Track daily attendance for students, teachers, and staff. Record office and home presence, view monthly summaries, and manage attendance online from any device.',
+    'Track daily attendance for bootcamp members and staff. Record office and home presence, view monthly summaries, and manage attendance online from any device.',
   keywords: ['Datafluent BD attendance', 'attendance management', 'online attendance', 'daily attendance', 'staff attendance', 'student attendance', 'employee attendance'],
   openGraph: {
     title: 'Datafluent BD — Online Daily Attendance Management',
     description:
-      'Track daily attendance for students, teachers, and staff. Record office and home presence, view monthly summaries, and manage attendance online from any device.',
+      'Track daily attendance for bootcamp members and staff. Record office and home presence, view monthly summaries, and manage attendance online from any device.',
     type: 'website',
   },
 }
@@ -119,7 +120,11 @@ export default async function HomePage() {
           </div>
         )}
 
-        <AttendanceForm employeeName={user.name} employeeEmail={user.email} role={memberRole} />
+        {/* Permission can be revoked after signing in, so the form itself is gated:
+            without location the submit button stays blocked and the modal explains why. */}
+        <LocationGate reason="attendance">
+          <AttendanceForm employeeName={user.name} employeeEmail={user.email} role={memberRole} />
+        </LocationGate>
       </div>
     </>
   )

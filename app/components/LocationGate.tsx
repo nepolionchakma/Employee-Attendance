@@ -56,17 +56,30 @@ export function useLocationPermission() {
 }
 
 /**
- * Blocks its children (the sign-in button) until the browser has geolocation
- * permission — attendance records the member's road and district, so access is
- * required before login.
+ * Blocks its children (the sign-in button or the attendance form) until the
+ * browser has geolocation permission — attendance records the member's road and
+ * district, so access is required before login and before submitting attendance.
  */
 export default function LocationGate({
   children,
   onGranted,
+  reason = 'login',
 }: {
   children: React.ReactNode
   onGranted?: () => void
+  /** What the permission is needed for — only changes the copy, not the gating. */
+  reason?: 'login' | 'attendance'
 }) {
+  const requiresCopy =
+    reason === 'attendance'
+      ? {
+        hint: 'Location permission required — click to allow, then submit attendance',
+        body: 'You must allow location to login and submit attendance. Location is only used for attendance verification.',
+      }
+      : {
+        hint: 'Location permission required — click to allow',
+        body: 'You must allow location to login and submit attendance. Location is only used for attendance verification.',
+      }
   const { state, error, request } = useLocationPermission()
   const [requesting, setRequesting] = useState(false)
   const [showModal, setShowModal] = useState(false)
@@ -117,9 +130,11 @@ export default function LocationGate({
         </div>
       ) : (
         <div onClickCapture={handleDisabledClick} style={{ opacity: 0.6 }}>
-          <div style={{ pointerEvents: 'none', opacity: 0.6 }}>{children}</div>
+          {/* inert as well as pointerEvents, so the blocked button/form can't be
+              reached by keyboard (Tab + Enter) while permission is missing. */}
+          <div inert style={{ pointerEvents: 'none', opacity: 0.6 }}>{children}</div>
           <p style={{ fontSize: 12, color: '#e5484d', textAlign: 'center', marginTop: 8 }}>
-            Location permission required — click to allow
+            {requiresCopy.hint}
           </p>
         </div>
       )}
@@ -137,7 +152,7 @@ export default function LocationGate({
               </p>
             )}
             <p style={{ fontSize: 14, color: 'var(--text)', marginBottom: 12 }}>
-              Attendance records your road and district, so location access must be allowed before you sign in.
+              {requiresCopy.body}
               {state === 'denied' && (
                 <span style={{ display: 'block', marginTop: 6, color: '#e5484d' }}>
                   Permission denied. Please enable location manually.
@@ -198,16 +213,16 @@ export default function LocationGate({
 
             {error && <p className="login-error" style={{ marginBottom: 10 }}>{error}</p>}
             <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
-              <button className="btn" onClick={() => setShowModal(false)}>
+              {/* <button className="btn" onClick={() => setShowModal(false)}>
                 Close
-              </button>
+              </button> */}
               <button className="btn primary" onClick={handleRequest} disabled={requesting || state === 'unsupported'}>
                 {requesting ? 'Requesting...' : state === 'denied' ? 'Retry' : 'Allow Location'}
               </button>
             </div>
-            <p style={{ fontSize: 12, color: 'var(--text)', marginTop: 10 }}>
+            {/* <p style={{ fontSize: 12, color: 'var(--text)', marginTop: 10 }}>
               You must allow location to login and submit attendance. Location is only used for attendance verification.
-            </p>
+            </p> */}
           </div>
         </div>
       )}

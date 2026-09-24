@@ -1348,9 +1348,9 @@ a {
   border-color: #b91c1c;
 }
 
-.cal-day.today {
+/* .cal-day.today {
   box-shadow: 0 0 0 2px var(--accent);
-}
+} */
 
 .cal-note {
   margin-top: 12px;
