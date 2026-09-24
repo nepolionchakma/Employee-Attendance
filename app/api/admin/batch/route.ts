@@ -34,13 +34,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ok: true, updated: cells.length })
     }
 
-    // Attendance batch: { attendanceUpdates: [{employeeName, day, status, time?}] }
+    // Attendance batch: { attendanceUpdates: [{employeeName, day, status, time?, location?}] }
     if (Array.isArray(body?.attendanceUpdates) && body.attendanceUpdates.length) {
-      const updates = body.attendanceUpdates.map((u: { employeeName?: string; day?: string; status?: string; time?: string }) => ({
+      const updates = body.attendanceUpdates.map((u: { employeeName?: string; day?: string; status?: string; time?: string; location?: string }) => ({
         employeeName: String(u.employeeName || '').trim(),
         day: String(u.day || '').trim(),
         status: String(u.status ?? '').trim(),
         time: String(u.time || '').trim(),
+        // Undefined keeps the location already stored in the sheet.
+        location: u.location === undefined || u.location === null ? undefined : String(u.location).trim().slice(0, 300),
       }))
       if (updates.some((u: { employeeName: string; day: string }) => !u.employeeName || !u.day)) {
         return NextResponse.json({ message: 'each attendanceUpdate needs employeeName and day' }, { status: 400 })

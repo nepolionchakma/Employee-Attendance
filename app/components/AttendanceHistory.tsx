@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 interface HistoryDay {
   status: string
   time: string
+  location?: string
 }
 
 interface HistoryPayload {
@@ -278,7 +279,7 @@ export default function AttendanceHistory() {
                 const friday = isFriday(day)
                 const kind = entry ? kindOf(entry.status) : holidayName !== undefined || friday ? 'off' : 'none'
                 const label = entry
-                  ? `${entry.status}${entry.time ? ` · ${entry.time}` : ''}`
+                  ? `${entry.status}${entry.time ? ` · ${entry.time}` : ''}${entry.location ? ` · ${entry.location}` : ''}`
                   : holidayName !== undefined
                     ? `Holiday${holidayName ? ` · ${holidayName}` : ''}`
                     : friday

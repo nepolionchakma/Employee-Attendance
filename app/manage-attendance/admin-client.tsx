@@ -5,30 +5,12 @@ import { shortName } from '@/lib/utils'
 
 const STATUS_OPTIONS = ['', 'On-site', 'Remote', 'Absent']
 
-// Mirror of lib/googleSheets AUTO_ABSENT_TIME — kept in sync for the client.
-const AUTO_ABSENT_TIME = (process.env.NEXT_PUBLIC_AUTO_ABSENT_TIME || '12:00 AM').trim() || '12:00 AM'
-
-function formatSystemTime() {
-  return new Intl.DateTimeFormat('en-US', {
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true,
-    timeZone: 'Asia/Dhaka',
-  }).format(new Date())
-}
-
-function previewTime(status: string) {
-  if (status === 'Absent') return AUTO_ABSENT_TIME
-  if (status === 'On-site' || status === 'Remote') return formatSystemTime()
-  return ''
-}
-
 interface AttendanceGrid {
   kind: 'attendance'
   tab: string
   tabs: string[]
   employees: string[]
-  days: { date: string; day: string; values: Record<string, string>; timeValues: Record<string, string> }[]
+  days: { date: string; day: string; values: Record<string, string>; locationValues: Record<string, string> }[]
   absentDays: Record<string, number>
 }
 
@@ -106,8 +88,10 @@ export default function AdminClient({ user }: { user: AdminClientUser }) {
   const [saving, setSaving] = useState(false)
   const [success, setSuccess] = useState('')
 
-  // pending edits: attendance -> { "emp::date": { employeeName, day, status, time } }
-  const [pendingAttendance, setPendingAttendance] = useState<Record<string, { employeeName: string; day: string; status: string; time?: string }>>({})
+  // pending edits: attendance -> { "emp::date": { employeeName, day, status, location } }
+  // `location` is only present once the editor actually touches that cell, so a
+  // status-only edit can't overwrite the stored location.
+  const [pendingAttendance, setPendingAttendance] = useState<Record<string, { employeeName: string; day: string; status: string; location?: string }>>({})
   // raw -> { "row::col": { row, col, value } }
   const [pendingRaw, setPendingRaw] = useState<Record<string, { row: number; col: number; value: string }>>({})
 
@@ -160,24 +144,27 @@ export default function AdminClient({ user }: { user: AdminClientUser }) {
   const handleAttendanceEdit = (employeeName: string, date: string, field: string, value: string) => {
     setSuccess('')
     setError('')
+    const row = grid?.kind === 'attendance' ? grid.days.find((d) => d.date === date) : undefined
     setGrid((prev) => {
       if (!prev || prev.kind !== 'attendance') return prev
       const days = prev.days.map((d) => {
         if (d.date !== date) return d
         if (field === 'status') return { ...d, values: { ...d.values, [employeeName]: value } }
-        if (field === 'time') return { ...d, timeValues: { ...d.timeValues, [employeeName]: value } }
+        if (field === 'location') return { ...d, locationValues: { ...d.locationValues, [employeeName]: value } }
         return d
       })
       return { ...prev, days }
     })
     const key = `${employeeName}::${date}`
     setPendingAttendance((prev) => {
-      const existing = prev[key] || { employeeName, day: date, status: '', time: '' }
-      if (field === 'status') {
-        // Auto-fill time when status changes: system time for On-site/Remote, custom absent time for Absent
-        const autoTime = value === 'Absent' ? AUTO_ABSENT_TIME : value ? formatSystemTime() : ''
-        return { ...prev, [key]: { ...existing, status: value, time: autoTime } }
+      const existing = prev[key] || {
+        employeeName,
+        day: date,
+        status: row?.values?.[employeeName] || '',
       }
+      // The time in the Presence cell is deduced server-side: unchanged status
+      // keeps the recorded time, a new status is stamped with the current time
+      // (Absent uses AUTO_ABSENT_TIME).
       return { ...prev, [key]: { ...existing, [field]: value } }
     })
   }
@@ -208,8 +195,10 @@ export default function AdminClient({ user }: { user: AdminClientUser }) {
           employeeName: u.employeeName,
           day: u.day,
           status: u.status,
-          time: u.time || '',
+          location: u.location,
         }))
+        // `location: undefined` is dropped by JSON.stringify — the server keeps
+        // whatever the sheet already has (and defaults Absent days to N/A).
         const res = await fetch('/api/admin/batch', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -400,7 +389,7 @@ export default function AdminClient({ user }: { user: AdminClientUser }) {
                     {grid.employees.map((emp) => (
                       <React.Fragment key={emp}>
                         <th className="admin-sub-header">Presence</th>
-                        <th className="admin-sub-header">Time</th>
+                        <th className="admin-sub-header">Location</th>
                       </React.Fragment>
                     ))}
                   </tr>
@@ -414,7 +403,9 @@ export default function AdminClient({ user }: { user: AdminClientUser }) {
                         const key = `${emp}::${row.date}`
                         const isDirty = key in pendingAttendance
                         const displayStatus = isDirty ? (pendingAttendance[key]?.status ?? (row.values[emp] || '')) : row.values[emp] || ''
-                        const displayTime = isDirty ? (pendingAttendance[key]?.time ?? (row.timeValues?.[emp] || '')) : row.timeValues?.[emp] || ''
+                        const displayLocation = isDirty
+                          ? (pendingAttendance[key]?.location ?? (row.locationValues?.[emp] || ''))
+                          : row.locationValues?.[emp] || ''
 
                         return (
                           <React.Fragment key={emp}>
@@ -435,13 +426,13 @@ export default function AdminClient({ user }: { user: AdminClientUser }) {
                             </td>
                             <td className={isDirty ? ' admin-cell-dirty' : ''}>
                               <input
-                                className="admin-time-input"
+                                className="admin-loc-input"
                                 type="text"
-                                value={displayTime}
-                                placeholder="time"
-                                onChange={(e) => handleAttendanceEdit(emp, row.date, 'time', e.target.value)}
+                                value={displayLocation}
+                                placeholder="road, district"
+                                onChange={(e) => handleAttendanceEdit(emp, row.date, 'location', e.target.value)}
                                 disabled={saving}
-                                aria-label={`${emp} time on ${row.date}`}
+                                aria-label={`${emp} location on ${row.date}`}
                               />
                               {isDirty && <span className="admin-dirty-dot" title="Unsaved" />}
                             </td>

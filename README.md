@@ -27,6 +27,7 @@ tab of your spreadsheet.
 
 - **Google OAuth login** — only emails in the Members tab can sign in
 - **One submit per day** — form locks after submitting; duplicates rejected server-side (409)
+- **Location on sign-in** — geolocation permission is required before the login button unlocks; road + district is stored with each mark
 - **Monthly summary** — present/absent counts on the home page
 - **All-members pre-fill** — new month tabs come pre-created for every member, with past days auto-marked
 - **Custom auto-absent time** — `AUTO_ABSENT_TIME` env var (default `12:00 AM`)
@@ -39,9 +40,10 @@ tab of your spreadsheet.
 | Tab | Purpose |
 |---|---|
 | `Members` | Directory: Full Name, Gmail, Phone, Role (`Admin`/`Employee`), Address |
-| `September 2026` (auto) | One **Presence + Time** column pair per member, one row per day, COUNTIF `Absent Days` row |
+| `September 2026` (auto) | One **Presence + Location** column pair per member, one row per day, COUNTIF `Absent Days` row |
 
-- Presence holds the pure status (`On-site` / `Remote` / `Absent` / `Holiday`); Time holds e.g. `9:00 AM`
+- Presence holds the status and time together (`On-site - 9:00 AM`, `Absent - 12:00 AM`, `Holiday`); Location holds the member's road and district, and defaults to `N/A` on absent days
+- Tabs still using the old `Presence` + `Time` format are converted automatically the first time they are opened
 - Fridays auto-fill as `Holiday`
 - Roles come from the Members tab (`Role` = `Admin` or `Employee`)
 
