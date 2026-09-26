@@ -36,12 +36,13 @@ After login, you will see:
 
 The admin spreadsheet has a **Holiday List** tab (rename with `HOLIDAYS_SHEET_TAB` if needed):
 
-| Date | Name |
-| --- | --- |
-| 09-20-2026 | ABC |
-| 09-21-2026 | DD |
+| Date | Day | Holiday Name |
+| --- | --- | --- |
+| 09-20-2026 | Sunday | ABC |
+| 09-21-2026 | Monday | DD |
 
-- Column A = date (a real date cell, or a typed date), column B = holiday name.
+- Column A = date (a real date cell, or a typed date), column B = holiday name, column C = weekday.
+- Column C is display-only: the app derives the weekday from the date in column A, so a wrong or blank `Day` never changes which days are treated as holidays. `scripts/verify-holidays.mjs` flags any row whose `Day` disagrees with its date.
 - Every listed date is written as **Holiday** in the matching month tab, for the whole month at once — including today and future dates. A listed holiday replaces whatever was recorded for that date.
 - On a holiday **nobody can submit attendance** (members and admins), and the homepage button shows `Holiday — submission disabled`. The API rejects the submit with `403` if a page was already open.
 - Holiday rows — and every Friday — are shaded automatically in the sheet with Google Sheets palette **light yellow 3** (`#FFF2CC`), so they stand out from normal days.

@@ -446,9 +446,10 @@ export async function deleteEmployee(rowIndex: number) {
 }
 
 /* ---- Holidays (admin spreadsheet 'Holiday List' tab) ----
- * Column A holds the date (a real date cell, or a typed date string) and
- * column B an optional holiday name. Those dates are marked 'Holiday' in every
- * month tab and block attendance submission for everyone.
+ * Column A holds the date (a real date cell, or a typed date string), column B
+ * an optional holiday name, and column C the weekday — display only, the app
+ * derives weekdays from the date itself. Those dates are marked 'Holiday' in
+ * every month tab and block attendance submission for everyone.
  */
 const HOLIDAYS_SHEET = (process.env.HOLIDAYS_SHEET_TAB || 'Holiday List').trim() || 'Holiday List'
 
@@ -489,7 +490,7 @@ export function serialToYmd(serial: number): { year: number; month: number; day:
 }
 
 /** Parses one holiday date cell (serial number or typed date string). */
-function parseHolidayDate(value: unknown): { year: number; month: number; day: number } | null {
+export function parseHolidayDate(value: unknown): { year: number; month: number; day: number } | null {
   if (typeof value === 'number') return serialToYmd(value)
   const raw = String(value ?? '').trim()
   if (!raw) return null
