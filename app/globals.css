@@ -369,6 +369,16 @@ a {
   background: var(--bg);
   z-index: 4;
 }
+
+.admin-table.admin-attendance-table tr:last-child td:nth-child(1) {
+    /* background-color: lightblue;
+    font-weight: bold; */
+}
+.admin-table.admin-attendance-table tr:last-child td:nth-child(2) {
+  z-index: 0;
+  background: #1f2028;
+  position: unset;
+}
 /* Corner cells (Date/Day headers) sit above everything */
 .admin-table.admin-attendance-table thead tr:first-child th:first-child,
 .admin-table.admin-attendance-table thead tr:first-child th:nth-child(2) {

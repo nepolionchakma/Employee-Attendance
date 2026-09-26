@@ -429,7 +429,7 @@ export default function AdminClient({ user }: { user: AdminClientUser }) {
                                 className="admin-loc-input"
                                 type="text"
                                 value={displayLocation}
-                                placeholder="road, district"
+                                placeholder="Location"
                                 onChange={(e) => handleAttendanceEdit(emp, row.date, 'location', e.target.value)}
                                 disabled={saving}
                                 aria-label={`${emp} location on ${row.date}`}
