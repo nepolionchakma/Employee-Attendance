@@ -3,7 +3,7 @@ import { getSessionUser } from '@/lib/auth'
 import AdminClient from './admin-client'
 import Navbar from '@/app/components/Navbar'
 
-export const metadata = { title: 'Admin — Attendance' }
+export const metadata = { title: 'Manage Attendance — Admin' }
 
 export default async function AdminPage() {
   const user = await getSessionUser()

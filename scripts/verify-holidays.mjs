@@ -3,7 +3,8 @@
  * and reports what the app sees in the ADMIN spreadsheet's holiday tab
  * (default name "Holiday List", override with HOLIDAYS_SHEET_TAB):
  * parsed dates, whether today is a holiday, and the day numbers the home-page
- * calendar would grey out for the current month.
+ * calendar would grey out for the current month. The Day column (C) is printed
+ * for reference and flagged if it disagrees with the real weekday of the date.
  *
  * Writes NOTHING to the spreadsheet. Run:  node --env-file=.env scripts/verify-holidays.mjs
  */
@@ -49,7 +50,7 @@ if (!holidayTab) {
 
 const view = await sheets.spreadsheets.values.get({
   spreadsheetId: ADMIN_ID,
-  range: `${holidayTab}!A1:B60`,
+  range: `${holidayTab}!A1:C60`,
   valueRenderOption: 'FORMATTED_VALUE',
 })
 console.log(`\nHoliday tab "${holidayTab}":`)
@@ -62,6 +63,23 @@ const holidays = await mod.getHolidays({ forceRefresh: true })
 console.log(`\ngetHolidays() -> ${holidays.size} date(s):`)
 for (const [key, name] of [...holidays].sort()) console.log(`  ${key}  ${name || '(no name)'}`)
 ok(holidays.size > 0, 'holiday list parsed (not empty)')
+
+// The Day column (C) is display-only, but it should still name the weekday of
+// the date in column A — a mismatch means the sheet was edited by hand.
+const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+for (const row of view.data.values || []) {
+  const ymd = mod.parseHolidayDate(row?.[0])
+  const label = String(row?.[2] ?? '').trim()
+  if (!ymd || !label) continue
+  const key = mod.dateKey(ymd.year, ymd.month, ymd.day)
+  const actual = new Intl.DateTimeFormat('en-US', { timeZone: TZ, weekday: 'long' }).format(
+    new Date(Date.UTC(ymd.year, ymd.month - 1, ymd.day)),
+  )
+  ok(
+    WEEKDAYS.includes(label) && label.toLowerCase() === actual.toLowerCase(),
+    `Day column for ${key} is "${label}" (expected ${actual})`,
+  )
+}
 
 const now = mod.nowParts()
 const todayKey = mod.dateKey(now.year, now.month, now.day)
