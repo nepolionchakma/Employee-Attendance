@@ -146,7 +146,7 @@ const EMPLOYEES_SHEET_CANDIDATES = [EMPLOYEES_SHEET].filter(Boolean)
 
 let employeesCache: any[] | null = null
 let employeesCacheAt = 0
-const EMPLOYEES_CACHE_TTL = 60 * 1000
+const EMPLOYEES_CACHE_TTL = 5 * 60 * 1000
 
 export type MemberRole = 'Admin' | 'Employee' | 'Bootcamp'
 
@@ -467,7 +467,7 @@ const MONTH_NAMES = [
 
 let holidaysCache: Map<string, string> | null = null
 let holidaysCacheAt = 0
-const HOLIDAYS_CACHE_TTL = 60 * 1000
+const HOLIDAYS_CACHE_TTL = 5 * 60 * 1000
 
 /** Is this tab the holiday list (never a month tab)? */
 export function isHolidaysTab(title: string) {
@@ -1472,7 +1472,7 @@ let migratedTabs = new Set<string>()
 // Tabs already repainted in this server process (see loadGrid).
 let paintedTabs = new Set<string>()
 
-async function loadGrid(sheets: any, tab: string, store?: unknown) {
+async function loadGrid(sheets: any, tab: string, store?: unknown, opts?: { readonly?: boolean }) {
   const normalizedStore = normalizeStore(store ?? 'admin')
   const sid = spreadsheetIdForStore(normalizedStore)
   const res = await sheets.spreadsheets.values.get({
@@ -1481,6 +1481,10 @@ async function loadGrid(sheets: any, tab: string, store?: unknown) {
     valueRenderOption: 'FORMATTED_VALUE',
   })
   const rows = res.data.values || []
+  // Readonly callers (history view, summaries) must never trigger writes:
+  // auto-absent fill, summary formulas and formatting all cost Sheets quota
+  // and don't change what the reader sees.
+  if (opts?.readonly) return rows
   // One-time auto-migration: Presence + Time → merged 'Status - Time' + Location.
   // Guarded per spreadsheet+tab so page loads don't re-check every time.
   const migratedKey = `${sid}::${tab}`
@@ -1788,8 +1792,11 @@ export async function batchUpdateAttendanceCells(tab: string, updates: { employe
 /**
  * Returns the full grid for a tab (for admin).
  * For 2-col: reads the merged Presence ('Status - Time') + Location per employee.
+ * Pass `{ readonly: true }` for pure reads (history, summaries): skips the
+ * auto-absent fill, summary-formula writes and formatting passes so one view
+ * costs Sheets read quota only — no write quota, no extra re-reads.
  */
-export async function getAdminGrid(tab: string, store?: unknown) {
+export async function getAdminGrid(tab: string, store?: unknown, opts?: { readonly?: boolean }) {
   const normalizedStore = normalizeStore(store ?? 'admin')
   const sid = spreadsheetIdForStore(normalizedStore)
   const sheets = await sheetsClient(sid)
@@ -1799,7 +1806,7 @@ export async function getAdminGrid(tab: string, store?: unknown) {
     const tabs = await listTabs(sheets, sid)
     if (!tabs.includes(title)) throw new Error(`Sheet tab "${title}" not found`)
   }
-  const rows = await loadGrid(sheets, title, normalizedStore)
+  const rows = await loadGrid(sheets, title, normalizedStore, opts)
   const headerRow = findHeaderRow(rows)
   const namesRow = findEmployeeNamesRow(rows, headerRow)
   const headers = rows[headerRow]

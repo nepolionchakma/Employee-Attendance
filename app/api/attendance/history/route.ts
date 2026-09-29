@@ -11,6 +11,37 @@ export interface HistoryDay {
   location?: string
 }
 
+/**
+ * Short server cache + in-flight dedupe so rapid month switching (or several
+ * tabs open at once) doesn't burn the Sheets "60 reads / minute" quota.
+ * One history view costs several Sheets reads (members + holidays + grid), so
+ * ~10 quick clicks used to exceed the quota on its own.
+ */
+const HISTORY_CACHE_TTL = 90 * 1000
+const historyCache = new Map<string, { at: number; payload: unknown }>()
+const historyInflight = new Map<string, Promise<unknown>>()
+
+function isQuotaError(error: unknown) {
+  const msg = error instanceof Error ? error.message : String(error ?? '')
+  const code = (error as { code?: unknown })?.code
+  return (
+    code === 429 ||
+    msg.includes('Quota exceeded') ||
+    msg.includes('Read requests per minute') ||
+    msg.includes('sheets.googleapis.com')
+  )
+}
+
+function quotaResponse() {
+  return NextResponse.json(
+    {
+      message:
+        'Attendance history is temporarily rate-limited by Google Sheets (60 reads/minute shared quota). Please wait about a minute, then try again — avoid clicking through months rapidly.',
+    },
+    { status: 429, headers: { 'Retry-After': '60' } },
+  )
+}
+
 function monthLabel(year: number, month: number) {
   return new Intl.DateTimeFormat('en-US', {
     timeZone: TZ,
@@ -31,7 +62,6 @@ export async function GET(request: NextRequest) {
     hasGoogleCredentials,
     getAdminGrid,
     getHolidaysInMonth,
-    listMonthTabs,
     parseHeaderEmail,
     parseHeaderName,
     nowParts,
@@ -58,8 +88,6 @@ export async function GET(request: NextRequest) {
     firstWeekday: new Date(year, month - 1, 1).getDay(),
     today: { year: now.year, month: now.month, day: now.day },
     days: {} as Record<string, HistoryDay>,
-    // Day number -> holiday name, from the admin spreadsheet's 'Holiday List'.
-    holidays: (await getHolidaysInMonth(year, month).catch(() => ({}))) as Record<string, string>,
   }
 
   // Dev fallback: without Google credentials the in-memory store only knows the
@@ -77,26 +105,51 @@ export async function GET(request: NextRequest) {
         }
       }
     }
-    return NextResponse.json({ ...base, tabExists: isCurrentMonth, hasColumn: isCurrentMonth, days })
+    return NextResponse.json({ ...base, holidays: {}, tabExists: isCurrentMonth, hasColumn: isCurrentMonth, days })
   }
 
-  try {
-    // Route to the caller's own sheet (Admin / Employee / Bootcamp) like the
-    // attendance writes do, and only read the month tab if it exists yet.
-    const store = await storeForEmail(email).catch(() => 'employee' as const)
-    const tabs = await listMonthTabs(store)
+  const cacheKey = `${email}::${year}-${month}`
+  const cached = historyCache.get(cacheKey)
+  if (cached && Date.now() - cached.at < HISTORY_CACHE_TTL) {
+    return NextResponse.json(cached.payload)
+  }
+  const inflight = historyInflight.get(cacheKey)
+  if (inflight) {
+    try {
+      return NextResponse.json(await inflight)
+    } catch {
+      // Fall through and try a fresh load below.
+    }
+  }
+
+  const load = (async () => {
+    // Members directory + holidays run in parallel (both are cached 5 min in
+    // lib/googleSheets). The grid itself is a pure read — readonly skips the
+    // auto-absent fill / summary writes that used to cost extra quota.
+    const [store, holidays] = await Promise.all([
+      storeForEmail(email).catch(() => 'employee' as const),
+      getHolidaysInMonth(year, month).catch(() => ({}) as Record<string, string>),
+    ])
     const tab = monthLabel(year, month)
-    if (!tabs.includes(tab)) {
-      return NextResponse.json({ ...base, tabExists: false, hasColumn: false })
+    let grid: Awaited<ReturnType<typeof getAdminGrid>>
+    try {
+      grid = await getAdminGrid(tab, store, { readonly: true })
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error)
+      // getAdminGrid already checks tab existence, so a missing tab needs no
+      // extra listTabs read.
+      if (msg.includes('not found')) {
+        return { ...base, holidays, tabExists: false, hasColumn: false }
+      }
+      throw error
     }
 
-    const grid = await getAdminGrid(tab, store)
     const employees: string[] = grid.employees || []
     const header =
       employees.find((h) => parseHeaderEmail(h) === email) ||
       (name ? employees.find((h) => parseHeaderName(h).trim().toLowerCase() === name.toLowerCase()) : undefined)
     if (!header) {
-      return NextResponse.json({ ...base, tabExists: true, hasColumn: false })
+      return { ...base, holidays, tabExists: true, hasColumn: false }
     }
 
     const days: Record<string, HistoryDay> = {}
@@ -109,10 +162,20 @@ export async function GET(request: NextRequest) {
         location: String(entry.locationValues?.[header] ?? '').trim(),
       }
     }
-    return NextResponse.json({ ...base, tabExists: true, hasColumn: true, tab: grid.tab, days })
+    return { ...base, holidays, tabExists: true, hasColumn: true, tab: grid.tab, days }
+  })()
+
+  historyInflight.set(cacheKey, load)
+  try {
+    const payload = await load
+    historyCache.set(cacheKey, { at: Date.now(), payload })
+    return NextResponse.json(payload)
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error)
     console.error('GET /api/attendance/history failed:', msg)
+    if (isQuotaError(error)) return quotaResponse()
     return NextResponse.json({ message: 'Could not load attendance history. ' + msg }, { status: 500 })
+  } finally {
+    if (historyInflight.get(cacheKey) === load) historyInflight.delete(cacheKey)
   }
 }
