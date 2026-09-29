@@ -44,19 +44,26 @@ export function spreadsheetIdForStore(store?: unknown): string {
   return ADMIN_SPREADSHEET_ID
 }
 
-/** Which stores have an explicit spreadsheet ID configured. */
+/**
+ * Which stores have an explicit spreadsheet ID configured, in display order:
+ * the everyday Employee (then Bootcamp) sheets come first, Admin last.
+ */
 export function listConfiguredStores(): { store: StoreKind; spreadsheetId: string; configured: boolean; label: string }[] {
   return [
-    { store: 'admin', spreadsheetId: spreadsheetIdForStore('admin'), configured: Boolean(ADMIN_SPREADSHEET_ID), label: 'Admin' },
     { store: 'employee', spreadsheetId: spreadsheetIdForStore('employee'), configured: Boolean(EMPLOYEE_SPREADSHEET_ID), label: 'Employee' },
     { store: 'bootcamp', spreadsheetId: spreadsheetIdForStore('bootcamp'), configured: Boolean(BOOTCAMP_SPREADSHEET_ID), label: 'Bootcamp' },
+    { store: 'admin', spreadsheetId: spreadsheetIdForStore('admin'), configured: Boolean(ADMIN_SPREADSHEET_ID), label: 'Admin' },
   ]
 }
 
-/** Env toggle so admins can be blocked from submitting attendance (testing). */
+/**
+ * Whether admins may submit their own attendance. Disabled by default — admins
+ * manage attendance instead of marking it, and the form is hidden for them.
+ * Set ADMIN_CAN_SUBMIT_ATTENDANCE=yes to bring the form back.
+ */
 export function adminCanSubmitAttendance(): boolean {
-  const v = (process.env.ADMIN_CAN_SUBMIT_ATTENDANCE || 'yes').trim().toLowerCase()
-  return !['no', 'false', '0', 'off', 'disable', 'disabled', 'n'].includes(v)
+  const v = (process.env.ADMIN_CAN_SUBMIT_ATTENDANCE || 'no').trim().toLowerCase()
+  return ['yes', 'true', '1', 'on', 'enable', 'enabled', 'y'].includes(v)
 }
 
 const CREDENTIALS_ENV = (process.env.GOOGLE_SERVICE_ACCOUNT_JSON || '').trim()
@@ -739,6 +746,22 @@ async function createTab(sheets: any, title: string, year: number, month: number
       requests: [{ addSheet: { properties: { title, gridProperties: { columnCount: 50 } } } }],
     },
   })
+  return initTabStructure(sheets, title, year, month, normalizedStore)
+}
+
+/**
+ * Writes the canonical month structure into an existing tab: Timestamp row,
+ * Date/Day + Presence/Location headers, a column block for every member of the
+ * store, then the auto-absent fill and the Absent Days summary.
+ *
+ * Used for brand-new tabs and to repair a month tab that exists but is still
+ * blank (created by hand, or left empty by an interrupted run) — the "tab name
+ * already exists" check alone would otherwise skip building it, leaving the
+ * store with no columns and no absent data.
+ */
+async function initTabStructure(sheets: any, title: string, year: number, month: number, store?: unknown) {
+  const normalizedStore = normalizeStore(store ?? 'admin')
+  const sid = spreadsheetIdForStore(normalizedStore)
 
   const daysInMonth = new Date(year, month, 0).getDate()
   const totalRow = daysInMonth + 3
@@ -796,7 +819,7 @@ async function createTab(sheets: any, title: string, year: number, month: number
     console.warn(`Member pre-population skipped for "${title}":`, (e as Error).message)
   }
 
-  console.log(`Created attendance tab "${title}" (${daysInMonth} days, 2-col with Timestamp row)`)
+  console.log(`Initialized attendance tab "${title}" (${daysInMonth} days, 2-col with Timestamp row)`)
   return title
 }
 
@@ -856,13 +879,57 @@ async function addAllEmployeeColumns(sheets: any, tab: string, members: { name?:
   return missing.length
 }
 
+let initializedTabs = new Set<string>()
+
+/**
+ * A month tab can exist and still be blank (made by hand, or left empty by an
+ * interrupted run). Name-only checks would treat that as "ready", so the store
+ * would never get its Date row, member columns or absent data. Detect that case
+ * and build the structure once per tab per process. Anything with real content
+ * is left untouched — only a completely empty tab is repaired.
+ */
+async function ensureTabInitialized(sheets: any, tab: string, store?: unknown) {
+  const normalizedStore = normalizeStore(store ?? 'admin')
+  const sid = spreadsheetIdForStore(normalizedStore)
+  const key = `${sid}::${tab}`
+  if (initializedTabs.has(key)) return
+  // Admin attendance is disabled — the admin month tab is never auto-built.
+  if (normalizedStore === 'admin') {
+    initializedTabs.add(key)
+    return
+  }
+  try {
+    const res = await sheets.spreadsheets.values.get({
+      spreadsheetId: sid,
+      range: tab,
+      valueRenderOption: 'FORMATTED_VALUE',
+    })
+    const rows = res.data.values || []
+    if (rows.some((r: any[]) => String(r?.[0] ?? '').trim() === 'Date')) {
+      initializedTabs.add(key)
+      return
+    }
+    const hasContent = rows.some((r: any[]) => (r || []).some((c: any) => String(c ?? '').trim() !== ''))
+    if (hasContent) return
+    const parts = parseMonthTabTitle(tab)
+    const fallback = nowParts()
+    await initTabStructure(sheets, tab, parts?.year ?? fallback.year, parts?.month ?? fallback.month, normalizedStore)
+    initializedTabs.add(key)
+  } catch (e) {
+    console.warn(`Could not initialise blank tab "${tab}":`, (e as Error).message)
+  }
+}
+
 async function ensureMonthTab(sheets: any, store?: unknown) {
   const normalizedStore = normalizeStore(store ?? 'admin')
   const sid = spreadsheetIdForStore(normalizedStore)
   const tabs = await listTabs(sheets, sid)
   const { year, month } = nowParts()
   const title = SHEET_TAB || monthLabel(year, month)
-  if (tabs.includes(title)) return title
+  if (tabs.includes(title)) {
+    await ensureTabInitialized(sheets, title, normalizedStore)
+    return title
+  }
   return createTab(sheets, title, year, month, normalizedStore)
 }
 
@@ -1888,6 +1955,38 @@ export async function ensureEmployeeTabForUser(employeeName: string, employeeEma
   const tab = await ensureMonthTab(sheets, userStore)
   await ensureEmployeeColumn(sheets, tab, employeeName, employeeEmail, userStore)
   await loadGrid(sheets, tab, userStore)
+}
+
+/**
+ * Gives every member of a store a Presence/Location column in the current month
+ * tab, filling the new columns (past days absent, Fridays holiday) and refreshing
+ * the Absent Days summary. Run on home-page load so a member never shows
+ * '(no column found)' just because they haven't marked attendance yet.
+ * Returns how many columns were added (0 when the tab is already complete).
+ */
+export async function ensureAllMemberColumnsForStore(store?: unknown): Promise<number> {
+  if (!hasGoogleCredentials() || !ADMIN_SPREADSHEET_ID) return 0
+  const normalizedStore = normalizeStore(store ?? 'admin')
+  const sid = spreadsheetIdForStore(normalizedStore)
+  const sheets = await sheetsClient(sid)
+  const tab = await ensureMonthTab(sheets, normalizedStore)
+  const members = await getEmployees()
+  const expected = roleForStore(normalizedStore)
+  const storeMembers = members.filter((m: { role?: string }) => normalizeRole(m?.role || '') === expected)
+  if (!storeMembers.length) return 0
+
+  const added = await addAllEmployeeColumns(sheets, tab, storeMembers, normalizedStore)
+  if (added > 0) {
+    const filled = await sheets.spreadsheets.values.get({
+      spreadsheetId: sid,
+      range: tab,
+      valueRenderOption: 'FORMATTED_VALUE',
+    })
+    const rows = filled.data.values || []
+    await markAbsentForPastDays(sheets, tab, rows, normalizedStore)
+    await updateAbsentSummary(sheets, tab, rows, normalizedStore)
+  }
+  return added
 }
 
 /* ---- Admin maintenance helpers (rebuild / add column / refresh) ---- */

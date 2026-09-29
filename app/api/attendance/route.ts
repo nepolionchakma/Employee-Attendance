@@ -27,13 +27,10 @@ export async function POST(request: NextRequest) {
   if (!user.isAdmin && employeeEmail.toLowerCase() !== String(user.email).toLowerCase()) {
     return NextResponse.json({ message: 'Forbidden: can only mark own attendance' }, { status: 403 })
   }
-  // Env toggle: ADMIN_CAN_SUBMIT_ATTENDANCE=no blocks admins from submitting
-  // (they can still manage all sheets). Non-admins always submit to their own store.
+  // Admins manage attendance rather than mark it. Disabled unless
+  // ADMIN_CAN_SUBMIT_ATTENDANCE=yes turns the form back on.
   if (user.isAdmin && !adminCanSubmitAttendance()) {
-    return NextResponse.json(
-      { message: 'Admin attendance submission is disabled (ADMIN_CAN_SUBMIT_ATTENDANCE=no).' },
-      { status: 403 },
-    )
+    return NextResponse.json({ message: 'Admin attendance submission is disabled.' }, { status: 403 })
   }
   if (!VALID_STATUSES.includes(status)) {
     return NextResponse.json(

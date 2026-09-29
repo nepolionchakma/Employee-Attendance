@@ -28,8 +28,8 @@ tab of your spreadsheet.
 - **Google OAuth login** — only emails in the Members tab can sign in
 - **One submit per day** — form locks after submitting; duplicates rejected server-side (409)
 - **Location on sign-in** — geolocation permission is required before the login button unlocks; road + district is stored with each mark
-- **Monthly summary** — present/absent counts on the home page
-- **All-members pre-fill** — new month tabs come pre-created for every member, with past days auto-marked
+- **Monthly summary** — present/absent counts on the home page (admins see every member except admin accounts; members see only their own row)
+- **All-members pre-fill** — new month tabs come pre-created for every member, and anyone missing a column in the current month gets one automatically on page load (past days auto-marked)
 - **Custom auto-absent time** — `AUTO_ABSENT_TIME` env var (default `12:00 AM`)
 - **Admin dashboard** — `/manage-attendance` (sticky spreadsheet-style grid) and `/manage-members`
 - **Sheet maintenance API** — refresh / add-column / rebuild tabs from the admin side
@@ -56,7 +56,7 @@ tab of your spreadsheet.
 | `ADMIN_SPREADSHEET_ID` | Yes | Members directory + Admin attendance (also accepts `admin_sheet_id`) |
 | `EMPLOYEE_SPREADSHEET_ID` | No | Employee attendance (also accepts `employee_sheet_id`; falls back to admin sheet) |
 | `BOOTCAMP_SPREADSHEET_ID` | No | Bootcamp attendance (also accepts `bootcamp_sheet_id`; falls back to admin sheet) |
-| `ADMIN_CAN_SUBMIT_ATTENDANCE` | No | `yes` (default) lets admins submit; `no` blocks admin submits (manage-only) |
+| `ADMIN_CAN_SUBMIT_ATTENDANCE` | No | Admins can't mark their own attendance and the form is hidden for them; set `yes` to bring it back (default `no`) |
 | `GOOGLE_SERVICE_ACCOUNT_JSON` | Yes | Service account JSON string (or base64 via `_BASE64`, or `service-account.json` in the project root) |
 | `SESSION_SECRET` | Yes | Random string for JWT signing (`openssl rand -base64 32`) |
 | `AUTO_ABSENT_TIME` | No | Time written into auto-absent cells (default `12:00 AM`) |
@@ -73,6 +73,7 @@ tab of your spreadsheet.
 | `yarn build` / `yarn start` | Production build / serve |
 | `yarn lint` | ESLint |
 | `yarn verify:absent` | End-to-end test of auto-absent + submit (runs on a scratch tab, live data untouched) |
+| `node --env-file=.env scripts/inspect-month-tab.mjs` | Read-only report of each store's current month tab: column layout, filled vs empty past days, Absent Days row |
 
 ## Google Cloud setup (summary)
 

@@ -31,7 +31,10 @@
 html,
 body {
   max-width: 100vw;
+  /* `clip` (not `hidden`) so the page never becomes its own scroll container —
+     with `overflow: hidden` the sticky navbar scrolls away with the content. */
   overflow-x: hidden;
+  overflow-x: clip;
 }
 
 body {
@@ -94,7 +97,7 @@ a {
 .page {
   max-width: 900px;
   margin: 0 auto;
-  padding: 32px 24px;
+  padding: 20px 20px;
   text-align: left;
 }
 
@@ -285,6 +288,7 @@ a {
 .admin-table.admin-attendance-table {
   --admin-date-w: 56px;
   --admin-head1-h: 36px;
+  --admin-head2-h: 43px;
 }
 /* Thin custom scrollbars through the whole app (Chrome/Edge/Safari).
    8px bars, transparent track, rounded thumb. Color comes from --text → light/dark
@@ -349,7 +353,7 @@ a {
   z-index: 5;
 }
 .admin-table.admin-attendance-table thead tr:nth-child(2) th {
-  top: var(--admin-head1-h);
+  top: var(--admin-head2-h);
   z-index: 5;
 }
 
@@ -376,7 +380,7 @@ a {
 }
 .admin-table.admin-attendance-table tr:last-child td:nth-child(2) {
   z-index: 0;
-  background: #1f2028;
+  background: none;
   position: unset;
 }
 /* Corner cells (Date/Day headers) sit above everything */
@@ -774,10 +778,34 @@ a {
 }
 
 .home-summary-wrap {
-  overflow-x: auto;
+  /* Fits the visitor's screen: rows scroll inside this box instead of pushing
+     the page (and the attendance form) down. */
+  max-height: max(350px, calc(100vh - 360px));
+  max-height: max(350px, calc(100dvh - 360px));
+  overflow: auto;
   border: 1px solid var(--border);
   border-radius: 10px;
   background: var(--bg);
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+.home-summary-wrap::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.home-summary-wrap::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.home-summary-wrap::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 999px;
+}
+
+.home-summary-wrap::-webkit-scrollbar-thumb:hover {
+  background: var(--text);
 }
 
 .home-summary-table {
@@ -802,6 +830,13 @@ a {
   font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.4px;
+}
+
+/* Keep the column labels visible while the rows scroll. */
+.home-summary-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
 }
 
 .home-summary-table tbody tr:last-child td {
@@ -844,40 +879,11 @@ a {
   vertical-align: middle;
 }
 
-.home-pagination {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-top: 14px;
-  flex-wrap: wrap;
-}
-
-.home-pagination-info {
-  font-size: 13px;
-  color: var(--text);
-  font-weight: 500;
-}
-
-.home-pagination-dots {
-  display: flex;
-  gap: 6px;
-  align-items: center;
-  margin-left: 4px;
-}
-
-.home-page-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 999px;
-  border: 1px solid var(--border);
-  background: var(--social-bg);
-  padding: 0;
-  cursor: pointer;
-}
-
-.home-page-dot.active {
-  background: var(--accent);
-  border-color: var(--accent);
+.home-nocol-badge {
+  display: inline-block;
+  margin-left: 10px;
+  font-size: 10px;
+  color: #e67e22;
 }
 
 .home-summary-own {

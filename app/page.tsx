@@ -29,6 +29,126 @@ interface SummaryStat {
   hasColumn: boolean
 }
 
+type StoreKey = 'admin' | 'employee' | 'bootcamp'
+
+const STORE_BY_ROLE: Record<string, StoreKey> = {
+  admin: 'admin',
+  employee: 'employee',
+  bootcamp: 'bootcamp',
+}
+
+/**
+ * Builds the attendance summary. Members come from the Members directory, but
+ * each member's counts are read from the sheet their role belongs to (Admin /
+ * Employee / Bootcamp), so '(no column found)' only shows for someone who really
+ * has no column in their own sheet yet.
+ *
+ * Admin-role accounts are left out: admins don't mark attendance, so their rows
+ * would only ever read as empty. An admin sees everyone else; a member only ever
+ * sees their own row.
+ */
+async function loadSummary(
+  user: { isAdmin: boolean },
+  ownStore: StoreKey,
+): Promise<{ monthLabel: string; stats: SummaryStat[] } | null> {
+  const gs = await import('@/lib/googleSheets')
+  const directory: { name?: string; email?: string; role?: string }[] = await gs.getEmployees().catch(() => [])
+
+  // Admin accounts are never listed, so their sheet isn't read (or built) at all.
+  const requested: StoreKey[] = user.isAdmin ? ['employee', 'bootcamp'] : [ownStore]
+  const seenIds = new Set<string>()
+  const storesToLoad: StoreKey[] = []
+  for (const store of requested) {
+    const id = gs.spreadsheetIdForStore(store)
+    // A store without its own spreadsheet ID falls back to the admin sheet, so
+    // skip the duplicate read instead of loading the same grid twice.
+    if (!id || seenIds.has(id)) continue
+    seenIds.add(id)
+    storesToLoad.push(store)
+  }
+
+  const loaded: { store: StoreKey; grid: Awaited<ReturnType<typeof gs.getAdminGrid>> }[] = []
+  await Promise.all(
+    storesToLoad.map(async (store) => {
+      try {
+        // Auto-create any missing member column for the current month before the
+        // grid is read, so a refresh never shows '(no column found)' for someone
+        // who simply hasn't marked attendance yet.
+        await gs.ensureAllMemberColumnsForStore(store).catch((e) => {
+          console.warn(`Home summary: could not add missing ${store} columns:`, (e as Error).message)
+        })
+        loaded.push({ store, grid: await gs.getAdminGrid('', store) })
+      } catch (e) {
+        console.error(`Home summary: could not read the ${store} sheet:`, (e as Error).message)
+      }
+    }),
+  )
+  const first = loaded[0]
+  if (!first) return null
+
+  const gridFor = (store: StoreKey) => loaded.find((l) => l.store === store)?.grid
+  // Never fall back to the admin sheet — those members aren't listed anyway.
+  const fallbackStore = loaded.find((l) => l.store !== 'admin')?.store ?? first.store
+
+  // Column lookup per sheet, keyed by the email embedded in each header.
+  const headersByStore = new Map<StoreKey, Map<string, string>>()
+  for (const { store, grid } of loaded) {
+    const map = new Map<string, string>()
+    for (const header of grid.employees || []) {
+      const email = gs.parseHeaderEmail(header)
+      if (email) map.set(email, header)
+    }
+    headersByStore.set(store, map)
+  }
+
+  const storeForRole = (role: string | undefined) => STORE_BY_ROLE[String(role || '').trim().toLowerCase()]
+
+  const entries = directory.length
+    ? directory
+      .filter((m) => storeForRole(m.role) !== 'admin')
+      .map((m) => ({
+        name: String(m.name || '').trim(),
+        email: String(m.email || '').trim().toLowerCase(),
+        store: storeForRole(m.role) || ('employee' as StoreKey),
+      }))
+    : loaded
+      .filter(({ store }) => store !== 'admin')
+      .flatMap(({ store, grid }) =>
+        (grid.employees || []).map((header) => ({
+          name: gs.parseHeaderName(header),
+          email: (gs.parseHeaderEmail(header) || '').toLowerCase(),
+          store,
+        })),
+      )
+
+  const stats: SummaryStat[] = entries.map((entry) => {
+    const name = entry.name || (entry.email ? entry.email.split('@')[0] : '')
+    const store = gridFor(entry.store) ? entry.store : fallbackStore
+    const grid = gridFor(store)
+    const header = (entry.email && headersByStore.get(store)?.get(entry.email)) || null
+    let present = 0
+    let absent = 0
+    if (header && grid) {
+      for (const day of grid.days || []) {
+        const value = String(day.values?.[header] || '').trim()
+        if (value === 'On-site' || value === 'Remote' || value.startsWith('On-site - ') || value.startsWith('Remote - ')) present++
+      }
+      absent = Number(grid.absentDays?.[header] ?? 0)
+    }
+    return {
+      employee: header || `${name} <${entry.email}>`,
+      name,
+      email: entry.email,
+      present,
+      absent,
+      total: present + absent,
+      hasColumn: !!header,
+    }
+  })
+
+  return { monthLabel: first.grid.tab, stats }
+}
+
 export default async function HomePage() {
   const user = await getSessionUser()
   if (!user) redirect('/login')
@@ -38,54 +158,38 @@ export default async function HomePage() {
   // to the session flag when the directory can't be read (no creds / offline).
   let memberRole: 'Admin' | 'Employee' | 'Bootcamp' = user.isAdmin ? 'Admin' : 'Employee'
   try {
-    const { hasGoogleCredentials, getAdminGrid, getEmployees, getRoleForEmail, parseHeaderEmail, parseHeaderName, storeForEmail } = await import('@/lib/googleSheets')
-    if (hasGoogleCredentials()) {
-      memberRole = (await getRoleForEmail(String(user.email || ''))) || memberRole
+    const gs = await import('@/lib/googleSheets')
+    // The form labels the user by their Members-directory role.
+    memberRole = (await gs.getRoleForEmail(String(user.email || ''))) || memberRole
+    if (gs.hasGoogleCredentials()) {
       // Each role reads its own spreadsheet: Bootcamp -> bootcamp sheet, Employee -> employee sheet.
-      const userStore = await storeForEmail(String(user.email || '')).catch(() => 'employee' as const)
-      const [grid, directory] = await Promise.all([getAdminGrid('', userStore), getEmployees()])
-      if (grid?.employees) {
-        const days = grid.days || []
-        const absentDays: Record<string, number> = grid.absentDays || {}
-        const headerByEmail = new Map<string, string>()
-        for (const h of grid.employees || []) {
-          const em = parseHeaderEmail(h)
-          if (em) headerByEmail.set(em.toLowerCase(), h)
-        }
-        const source = directory && directory.length ? directory : (grid.employees || []).map((h: string) => ({
-          name: parseHeaderName(h),
-          email: parseHeaderEmail(h) || '',
-        }))
-        const stats = source.map((m: { name?: string; email?: string }) => {
-          const email = String(m.email || '').trim().toLowerCase()
-          const name = String(m.name || '').trim() || (email ? email.split('@')[0] : '')
-          const header = email ? headerByEmail.get(email) || null : null
-          let present = 0
-          let absent = 0
-          if (header) {
-            for (const d of days) {
-              const v = String(d.values?.[header] || '').trim()
-              if (v === 'On-site' || v === 'Remote' || v.startsWith('On-site - ') || v.startsWith('Remote - ')) present++
-            }
-            absent = Number((absentDays as Record<string, number>)[header] ?? 0)
-          }
-          return { employee: header || `${name} <${email}>`, name, email, present, absent, total: present + absent, hasColumn: !!header }
-        })
-        summary = { monthLabel: grid.tab, stats }
-      }
+      const ownStore: StoreKey = await gs
+        .storeForEmail(String(user.email || ''))
+        .catch(() => (user.isAdmin ? 'admin' : 'employee'))
+      summary = await loadSummary(user, ownStore)
     }
   } catch (e) {
     console.error('Home summary failed:', (e as Error).message)
   }
 
-  const displayStats: SummaryStat[] = (() => {
-    if (!summary?.stats?.length) return []
-    if (user.isAdmin) return summary.stats
-    const ownEmail = String(user.email || '').trim().toLowerCase()
-    const own = summary.stats.find((s) => s.email && s.email.toLowerCase() === ownEmail)
-    return own ? [own] : []
-  })()
+  // Admins manage attendance rather than mark it, so their form is hidden
+  // entirely. Set ADMIN_CAN_SUBMIT_ATTENDANCE=yes to bring it back.
+  let adminCanSubmit = false
+  if (user.isAdmin) {
+    try {
+      const { adminCanSubmitAttendance } = await import('@/lib/googleSheets')
+      adminCanSubmit = adminCanSubmitAttendance()
+    } catch {
+      adminCanSubmit = false
+    }
+  }
 
+  // Admins see every member except admin-role accounts (already dropped in
+  // loadSummary); a member only ever sees their own row.
+  const ownEmail = String(user.email || '').trim().toLowerCase()
+  const displayStats: SummaryStat[] = user.isAdmin
+    ? summary?.stats ?? []
+    : (summary?.stats ?? []).filter((s) => s.email && s.email.toLowerCase() === ownEmail)
   const ownMissing = !user.isAdmin && (summary?.stats?.length ?? 0) > 0 && displayStats.length === 0
 
   return (
@@ -97,10 +201,11 @@ export default async function HomePage() {
             <div className="home-summary-header">
               <div className="home-title-row">
                 <h3>{user.isAdmin ? 'Attendance' : 'My Attendance'} - {summary.monthLabel}</h3>
-                <AttendanceHistory />
+                {/* The calendar is the signed-in user's own attendance — admins don't see theirs. */}
+                {!user.isAdmin && <AttendanceHistory />}
               </div>
               <span className="home-summary-sub">
-                {user.isAdmin ? 'Current month summary for all employees' : 'Your current month summary'}
+                {user.isAdmin ? 'Current month summary for all members' : 'Your current month summary'}
               </span>
             </div>
 
@@ -121,10 +226,13 @@ export default async function HomePage() {
         )}
 
         {/* Permission can be revoked after signing in, so the form itself is gated:
-            without location the submit button stays blocked and the modal explains why. */}
-        <LocationGate reason="attendance">
-          <AttendanceForm employeeName={user.name} employeeEmail={user.email} role={memberRole} />
-        </LocationGate>
+            without location the submit button stays blocked and the modal explains why.
+            Admins mark nothing at all — no summary, no form — so nothing renders for them. */}
+        {(!user.isAdmin || adminCanSubmit) && (
+          <LocationGate reason="attendance">
+            <AttendanceForm employeeName={user.name} employeeEmail={user.email} role={memberRole} />
+          </LocationGate>
+        )}
       </div>
     </>
   )
