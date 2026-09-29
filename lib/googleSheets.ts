@@ -44,19 +44,26 @@ export function spreadsheetIdForStore(store?: unknown): string {
   return ADMIN_SPREADSHEET_ID
 }
 
-/** Which stores have an explicit spreadsheet ID configured. */
+/**
+ * Which stores have an explicit spreadsheet ID configured, in display order:
+ * the everyday Employee (then Bootcamp) sheets come first, Admin last.
+ */
 export function listConfiguredStores(): { store: StoreKind; spreadsheetId: string; configured: boolean; label: string }[] {
   return [
-    { store: 'admin', spreadsheetId: spreadsheetIdForStore('admin'), configured: Boolean(ADMIN_SPREADSHEET_ID), label: 'Admin' },
     { store: 'employee', spreadsheetId: spreadsheetIdForStore('employee'), configured: Boolean(EMPLOYEE_SPREADSHEET_ID), label: 'Employee' },
     { store: 'bootcamp', spreadsheetId: spreadsheetIdForStore('bootcamp'), configured: Boolean(BOOTCAMP_SPREADSHEET_ID), label: 'Bootcamp' },
+    { store: 'admin', spreadsheetId: spreadsheetIdForStore('admin'), configured: Boolean(ADMIN_SPREADSHEET_ID), label: 'Admin' },
   ]
 }
 
-/** Env toggle so admins can be blocked from submitting attendance (testing). */
+/**
+ * Whether admins may submit their own attendance. Disabled by default — admins
+ * manage attendance instead of marking it, and the form is hidden for them.
+ * Set ADMIN_CAN_SUBMIT_ATTENDANCE=yes to bring the form back.
+ */
 export function adminCanSubmitAttendance(): boolean {
-  const v = (process.env.ADMIN_CAN_SUBMIT_ATTENDANCE || 'yes').trim().toLowerCase()
-  return !['no', 'false', '0', 'off', 'disable', 'disabled', 'n'].includes(v)
+  const v = (process.env.ADMIN_CAN_SUBMIT_ATTENDANCE || 'no').trim().toLowerCase()
+  return ['yes', 'true', '1', 'on', 'enable', 'enabled', 'y'].includes(v)
 }
 
 const CREDENTIALS_ENV = (process.env.GOOGLE_SERVICE_ACCOUNT_JSON || '').trim()

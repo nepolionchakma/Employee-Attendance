@@ -22,7 +22,7 @@ After login, you will see:
 
 - **Attendance summary** for the current month.
 - A table with each person’s name/email, present days, absent days, and total.
-- Admins can see all employees/students. Regular users see only their own record.
+- Admins see every member's present/absent counts for the month, except other admin accounts (admins don't mark attendance). Regular users see only their own record.
 
 ## Spreadsheets (Admin / Employee / Bootcamp)
 
@@ -30,7 +30,7 @@ After login, you will see:
 - Attendance is routed by Role: Admins -> admin sheet, Employees -> employee sheet, Bootcamp -> bootcamp sheet.
 - If the employee/bootcamp sheet ID is not set, that group falls back to the admin sheet (old single-sheet behavior).
 - Share **all three** spreadsheets with the service account email as **Editor**.
-- `ADMIN_CAN_SUBMIT_ATTENDANCE=no` blocks admins from submitting (manage-only). Default `yes` (useful for testing).
+- Admins **cannot mark their own attendance**: the form is hidden from their home page and the API rejects admin submits. Set `ADMIN_CAN_SUBMIT_ATTENDANCE=yes` in the environment to bring it back.
 
 ## Admin Tasks
 
@@ -46,20 +46,19 @@ If the sheet isn’t set up yet, the dashboard will show a message like “Atten
 
 ### 2. View overall attendance
 
-Use the **Spreadsheet** switcher on the Manage Attendance page to view Admin / Employee / Bootcamp sheets.
+Use the **Spreadsheet** switcher on the Manage Attendance page to view the Employee / Bootcamp sheets. It opens on **Employee**, and the admin sheet is not listed (admins don't mark attendance).
 
+The homepage gives admins a read-only summary of every member (admin accounts excluded); this page is where you open the sheets and correct entries.
 
-Admins can see the full list of employees/students and their attendance for the month.
-
-- Look for the **Attendance** card on the homepage.
-- The table shows present, absent, and total days.
+- Pick a **Spreadsheet** and **Sheet (tab)** to load that group's month.
+- The table shows presence and location per day, with **Absent Days** at the bottom.
 - If a person has no attendance column yet, they may not appear.
 
 ### 3. Mark or check attendance
 
-- The attendance form on the page lets users record their own attendance.
-- Admins can monitor the sheet directly to review or correct entries.
-- To create a column for someone who doesn’t have one yet, mark attendance using the form with that person’s email.
+- The attendance form on the homepage lets members record their own attendance.
+- Admin accounts get **no form** — review or correct entries in the sheet instead (step 2).
+- Someone without a column yet gets one the first time they mark attendance from their own account.
 
 ### 4. Manage employees/students list
 

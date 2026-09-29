@@ -74,11 +74,12 @@ function SheetIcon() {
 }
 
 export default function AdminClient({ user }: { user: AdminClientUser }) {
-  const [store, setStore] = useState('admin')
+  // The Employee sheet is the everyday one, so it opens first; Admin comes last.
+  const [store, setStore] = useState('employee')
   const [stores, setStores] = useState<{ store: string; label: string; configured: boolean }[]>([
-    { store: 'admin', label: 'Admin', configured: true },
     { store: 'employee', label: 'Employee', configured: true },
     { store: 'bootcamp', label: 'Bootcamp', configured: true },
+    { store: 'admin', label: 'Admin', configured: true },
   ])
   const [tab, setTab] = useState('')
   const [tabs, setTabs] = useState<string[]>([])
@@ -94,6 +95,9 @@ export default function AdminClient({ user }: { user: AdminClientUser }) {
   const [pendingAttendance, setPendingAttendance] = useState<Record<string, { employeeName: string; day: string; status: string; location?: string }>>({})
   // raw -> { "row::col": { row, col, value } }
   const [pendingRaw, setPendingRaw] = useState<Record<string, { row: number; col: number; value: string }>>({})
+
+  // The admin spreadsheet is not offered here — admins don't mark attendance.
+  const visibleStores = useMemo(() => stores.filter((s) => s.store !== 'admin'), [stores])
 
   const pendingAttendanceCount = useMemo(() => Object.keys(pendingAttendance).length, [pendingAttendance])
   const pendingRawCount = useMemo(() => Object.keys(pendingRaw).length, [pendingRaw])
@@ -115,7 +119,7 @@ export default function AdminClient({ user }: { user: AdminClientUser }) {
       if (!res.ok) throw new Error(data.message || 'Failed to load')
       setTabs(data.tabs || [])
       if (Array.isArray(data.stores) && data.stores.length) setStores(data.stores)
-      if (data.store) setStore(data.store)
+      if (data.store && data.store !== 'admin') setStore(data.store)
       setGrid(data)
       if (!tabName) setTab(data.tab)
       clearPending()
@@ -128,7 +132,7 @@ export default function AdminClient({ user }: { user: AdminClientUser }) {
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    void fetchData('admin', '')
+    void fetchData('employee', '')
   }, [fetchData])
 
   const handleStoreChange = (s: string) => {
@@ -284,7 +288,7 @@ export default function AdminClient({ user }: { user: AdminClientUser }) {
     <div className="page admin-page">
       <div className="admin-page-header">
         <h2>Manage Attendance{grid?.tab ? ` — ${grid.tab}` : ''}</h2>
-        <p className="admin-page-subtitle">View and edit any sheet — all changes stay local until you press Save.</p>
+        <p className="admin-page-subtitle">View and edit attendance sheets — all changes stay local until you press Save.</p>
       </div>
 
       {error && <p className="attendance-status error">{error}</p>}
@@ -303,7 +307,7 @@ export default function AdminClient({ user }: { user: AdminClientUser }) {
             disabled={saving || loading}
             aria-label="Spreadsheet"
           >
-            {stores.map((s) => (
+            {visibleStores.map((s) => (
               <option key={s.store} value={s.store}>
                 {s.label}{s.configured ? '' : ' (not configured)'}
               </option>
