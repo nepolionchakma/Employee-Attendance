@@ -119,32 +119,37 @@ export default function AttendanceHistory() {
       return
     }
 
+    // Debounce rapid Prev/Next clicks: each month costs several Sheets reads
+    // against a shared 60 reads/minute quota, so only fetch the settled month.
     let cancelled = false
     setLoading(true)
     setError('')
-    fetch(`/api/attendance/history?year=${cursor.year}&month=${cursor.month}`)
-      .then(async (res) => {
-        const body = await res.json().catch(() => null)
-        if (!res.ok) throw new Error(body?.message || 'Could not load attendance history.')
-        return body as HistoryPayload
-      })
-      .then((payload) => {
-        if (cancelled) return
-        cache.current.set(key, payload)
-        setData(payload)
-      })
-      .catch((e: Error) => {
-        if (!cancelled) {
-          setData(null)
-          setError(e.message)
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false)
-      })
+    const timer = setTimeout(() => {
+      fetch(`/api/attendance/history?year=${cursor.year}&month=${cursor.month}`)
+        .then(async (res) => {
+          const body = await res.json().catch(() => null)
+          if (!res.ok) throw new Error(body?.message || 'Could not load attendance history.')
+          return body as HistoryPayload
+        })
+        .then((payload) => {
+          if (cancelled) return
+          cache.current.set(key, payload)
+          setData(payload)
+        })
+        .catch((e: Error) => {
+          if (!cancelled) {
+            setData(null)
+            setError(e.message)
+          }
+        })
+        .finally(() => {
+          if (!cancelled) setLoading(false)
+        })
+    }, 300)
 
     return () => {
       cancelled = true
+      clearTimeout(timer)
     }
   }, [open, cursor, reloadKey])
 
