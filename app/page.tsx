@@ -54,7 +54,8 @@ async function loadSummary(
   const gs = await import('@/lib/googleSheets')
   const directory: { name?: string; email?: string; role?: string }[] = await gs.getEmployees().catch(() => [])
 
-  const requested: StoreKey[] = user.isAdmin ? ['admin', 'employee', 'bootcamp'] : [ownStore]
+  // Admin accounts are never listed, so their sheet isn't read (or built) at all.
+  const requested: StoreKey[] = user.isAdmin ? ['employee', 'bootcamp'] : [ownStore]
   const seenIds = new Set<string>()
   const storesToLoad: StoreKey[] = []
   for (const store of requested) {
@@ -70,6 +71,12 @@ async function loadSummary(
   await Promise.all(
     storesToLoad.map(async (store) => {
       try {
+        // Auto-create any missing member column for the current month before the
+        // grid is read, so a refresh never shows '(no column found)' for someone
+        // who simply hasn't marked attendance yet.
+        await gs.ensureAllMemberColumnsForStore(store).catch((e) => {
+          console.warn(`Home summary: could not add missing ${store} columns:`, (e as Error).message)
+        })
         loaded.push({ store, grid: await gs.getAdminGrid('', store) })
       } catch (e) {
         console.error(`Home summary: could not read the ${store} sheet:`, (e as Error).message)
@@ -139,7 +146,7 @@ async function loadSummary(
     }
   })
 
-  return { monthLabel: gridFor('admin')?.tab || first.grid.tab, stats }
+  return { monthLabel: first.grid.tab, stats }
 }
 
 export default async function HomePage() {
@@ -198,7 +205,7 @@ export default async function HomePage() {
                 {!user.isAdmin && <AttendanceHistory />}
               </div>
               <span className="home-summary-sub">
-                {user.isAdmin ? 'Current month summary for all members (admins excluded)' : 'Your current month summary'}
+                {user.isAdmin ? 'Current month summary for all members' : 'Your current month summary'}
               </span>
             </div>
 

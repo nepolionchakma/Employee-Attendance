@@ -94,7 +94,7 @@ If your app has a **Manage Members** section (if available):
 Common issues:
 
 - **No attendance data:** check the sheet configuration and that the sheet has the expected headers.
-- **Missing column for a user:** mark attendance for that user via the form to create a column.
+- **Missing column for a user:** columns are created automatically the next time the page is refreshed; if one is still missing, check that the member has an email in the `Members` tab.
 - **Admin options not showing:** your Google account may not have admin rights. Contact the system owner to grant access.
 
 ## Support
