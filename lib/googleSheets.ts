@@ -121,7 +121,73 @@ async function sheetsClient(spreadsheetId?: string) {
     scopes: ['https://www.googleapis.com/auth/spreadsheets'],
   })
   const client = await auth.getClient()
-  return google.sheets({ version: 'v4', auth: client } as any)
+  const raw: any = google.sheets({ version: 'v4', auth: client } as any)
+  // Count every Sheets API call in one place so the navbar can show quota use.
+  // Reads (spreadsheets.get / values.get) share the 60 reads/min quota;
+  // writes (values.update / batchUpdate) share the 60 writes/min quota.
+  try {
+    const wrap = (fn: (...args: any[]) => Promise<any>, kind: 'read' | 'write') => {
+      return async function (this: unknown, ...args: any[]) {
+        if (kind === 'read') trackSheetsRead()
+        else trackSheetsWrite()
+        return fn.apply(this, args)
+      }
+    }
+    const sp = raw?.spreadsheets
+    if (sp?.get) sp.get = wrap(sp.get, 'read')
+    if (sp?.batchUpdate) sp.batchUpdate = wrap(sp.batchUpdate, 'write')
+    const vals = sp?.values
+    if (vals?.get) vals.get = wrap(vals.get, 'read')
+    if (vals?.update) vals.update = wrap(vals.update, 'write')
+    if (vals?.batchUpdate) vals.batchUpdate = wrap(vals.batchUpdate, 'write')
+    if (vals?.append) vals.append = wrap(vals.append, 'write')
+    if (vals?.clear) vals.clear = wrap(vals.clear, 'write')
+  } catch {}
+  return raw
+}
+
+/* ---- Sheets API usage tracking (navbar query counter) ----
+ * Per-server-process estimate of the shared Google quota:
+ * 60 reads/min + 60 writes/min per service-account project. With multiple
+ * server instances (or the Google Console open) the real quota use is higher
+ * than what one process sees — treat this as a lower bound.
+ */
+const SHEETS_READ_LIMIT = 60
+const SHEETS_WRITE_LIMIT = 60
+const USAGE_WINDOW_MS = 60 * 1000
+let sheetsReadsTotal = 0
+let sheetsWritesTotal = 0
+let sheetsReadAt: number[] = []
+let sheetsWriteAt: number[] = []
+
+function pruneUsage() {
+  const cutoff = Date.now() - USAGE_WINDOW_MS
+  sheetsReadAt = sheetsReadAt.filter((t) => t > cutoff)
+  sheetsWriteAt = sheetsWriteAt.filter((t) => t > cutoff)
+}
+
+function trackSheetsRead() {
+  sheetsReadsTotal++
+  sheetsReadAt.push(Date.now())
+  pruneUsage()
+}
+
+function trackSheetsWrite() {
+  sheetsWritesTotal++
+  sheetsWriteAt.push(Date.now())
+  pruneUsage()
+}
+
+export function getSheetsUsage() {
+  pruneUsage()
+  return {
+    readsTotal: sheetsReadsTotal,
+    writesTotal: sheetsWritesTotal,
+    readsLastMinute: sheetsReadAt.length,
+    writesLastMinute: sheetsWriteAt.length,
+    readLimit: SHEETS_READ_LIMIT,
+    writeLimit: SHEETS_WRITE_LIMIT,
+  }
 }
 
 async function listTabs(sheets: any, spreadsheetId?: string) {
@@ -1590,7 +1656,7 @@ export async function markAttendance(employeeName: string, employeeEmail?: strin
   if (isPresenceTimeFormat(rows, headerRow)) {
     const migrated = await migratePresenceTimeToMerged(sheets, tab, normalizedStore)
     if (migrated) {
-      rows = await sheets.spreadsheets.values.get({ spreadsheetId: sid, range: tab, valueRenderOption: 'FORMATTED_VALUE' }).then(r => r.data.values || [])
+      rows = await sheets.spreadsheets.values.get({ spreadsheetId: sid, range: tab, valueRenderOption: 'FORMATTED_VALUE' }).then((r: any) => r.data.values || [])
       headerRow = findHeaderRow(rows)
     }
   }
