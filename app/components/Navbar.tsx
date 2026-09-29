@@ -2,12 +2,60 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import { useEffect, useState } from 'react'
 import { shortName } from '@/lib/utils'
+import Image from 'next/image'
+import Logo from '../../public/favicon.svg'
 
 interface NavbarUser {
   name: string
   email: string
   isAdmin: boolean
+}
+
+interface SheetsUsage {
+  readsTotal: number
+  writesTotal: number
+  readsLastMinute: number
+  writesLastMinute: number
+  readLimit: number
+  writeLimit: number
+}
+
+function QuotaBadge() {
+  const [usage, setUsage] = useState<SheetsUsage | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    const load = async () => {
+      try {
+        const res = await fetch('/api/sheets-usage')
+        if (!res.ok) return
+        const body = (await res.json()) as SheetsUsage
+        if (!cancelled) setUsage(body)
+      } catch {
+        // Counter is best-effort — never break the navbar.
+      }
+    }
+    load()
+    const timer = setInterval(load, 15000)
+    return () => {
+      cancelled = true
+      clearInterval(timer)
+    }
+  }, [])
+
+  if (!usage) return null
+  const pct = usage.readLimit > 0 ? usage.readsLastMinute / usage.readLimit : 0
+  const level = pct >= 0.9 ? 'danger' : pct >= 0.7 ? 'warn' : 'ok'
+  return (
+    <span
+      className={`navbar-quota navbar-quota-${level}`}
+      title={`Sheets queries from this server in the last minute: ${usage.readsLastMinute} reads / ${usage.readLimit} + ${usage.writesLastMinute} writes / ${usage.writeLimit}. Total this process: ${usage.readsTotal} reads, ${usage.writesTotal} writes. Lower bound — other instances add more.`}
+    >
+      {usage.readsLastMinute}/{usage.readLimit} queries/min · {usage.readsTotal + usage.writesTotal} total
+    </span>
+  )
 }
 
 function HomeIcon() {
@@ -68,7 +116,8 @@ export default function Navbar({ user }: { user: NavbarUser }) {
     <nav className="navbar">
       <div className="navbar-inner">
         <Link href="/" className="navbar-brand">
-          <span className="navbar-brand-icon">◉</span> Attendance
+          {/* <span>◉</span> Attendance */}
+          <Image className="navbar-brand-icon" src={Logo} alt='Logo'></Image> Attendance
         </Link>
 
         <div className="navbar-links">
@@ -91,6 +140,7 @@ export default function Navbar({ user }: { user: NavbarUser }) {
         </div>
 
         <div className="navbar-user-name">
+          <QuotaBadge />
           <span className="navbar-user" title={String(user.name || '').length > 11 ? user.name : user.email}>
             {user.name}
             {user.isAdmin && <span className="navbar-admin-badge">Admin</span>}
